@@ -138,6 +138,17 @@
   word-break: break-word;
 }
 
+.message-markdown blockquote {
+  margin: 4px 0;
+  padding-left: 10px;
+  border-left: 4px solid #4e5058;
+  color: #c4c9ce;
+}
+
+.message-markdown blockquote p {
+  margin: 0;
+}
+
 .message-markdown a {
   color: #00a8fc;
   text-decoration: none;

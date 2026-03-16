@@ -105,6 +105,7 @@ export function renderDiscordMarkdown(content: string): ReactNode[] {
   let inCodeBlock = false
   let codeFenceLang = ''
   let codeBuffer: string[] = []
+  let quoteBuffer: string[] = []
   let keyCounter = 0
 
   const flushCodeBlock = () => {
@@ -119,9 +120,29 @@ export function renderDiscordMarkdown(content: string): ReactNode[] {
     codeFenceLang = ''
   }
 
+  const renderInlineLine = (line: string) =>
+    renderInline(line).map((node, index) => (
+      <Fragment key={`fragment-${keyCounter}-${index}`}>{node}</Fragment>
+    ))
+
+  const flushQuoteBlock = () => {
+    nodes.push(
+      <blockquote key={`blockquote-${keyCounter++}`}>
+        {quoteBuffer.map((quoteLine, index) => (
+          <p key={`quote-line-${index}`}>{renderInlineLine(quoteLine)}</p>
+        ))}
+      </blockquote>,
+    )
+    quoteBuffer = []
+  }
+
   for (const line of lines) {
     const fence = line.match(/^```(\w+)?\s*$/)
     if (fence) {
+      if (quoteBuffer.length > 0) {
+        flushQuoteBlock()
+      }
+
       if (inCodeBlock) {
         flushCodeBlock()
       } else {
@@ -136,18 +157,28 @@ export function renderDiscordMarkdown(content: string): ReactNode[] {
       continue
     }
 
+    const quoteMatch = line.match(/^>\s?(.*)$/)
+    if (quoteMatch) {
+      quoteBuffer.push(quoteMatch[1] ?? '')
+      continue
+    }
+
+    if (quoteBuffer.length > 0) {
+      flushQuoteBlock()
+    }
+
     if (!line.trim()) {
       nodes.push(<br key={`br-${keyCounter++}`} />)
       continue
     }
 
     nodes.push(
-      <p key={`p-${keyCounter++}`}>
-        {renderInline(line).map((node, index) => (
-          <Fragment key={`fragment-${keyCounter}-${index}`}>{node}</Fragment>
-        ))}
-      </p>,
+      <p key={`p-${keyCounter++}`}>{renderInlineLine(line)}</p>,
     )
+  }
+
+  if (quoteBuffer.length > 0) {
+    flushQuoteBlock()
   }
 
   if (inCodeBlock && codeBuffer.length > 0) {

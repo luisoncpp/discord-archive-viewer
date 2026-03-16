@@ -45,6 +45,21 @@ describe('MessageContent', () => {
     expect(link).toHaveAttribute('href', 'https://example.com/docs')
   })
 
+  it('renders quote blocks', () => {
+    const { container } = render(
+      <MessageContent
+        content={'> primera linea\n> segunda linea'}
+        attachmentsRaw={null}
+        reactionsRaw={null}
+      />,
+    )
+
+    const quote = container.querySelector('blockquote')
+    expect(quote).not.toBeNull()
+    expect(screen.getByText('primera linea')).toBeInTheDocument()
+    expect(screen.getByText('segunda linea')).toBeInTheDocument()
+  })
+
   it('renders image embed from first eligible url', () => {
     render(
       <MessageContent
