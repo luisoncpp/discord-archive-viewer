@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { MessageContent } from './features/messages/MessageContent'
+import { SearchFilters } from './features/app/SearchFilters'
+import { TimelineSection } from './features/app/TimelineSection'
 import { useDebouncedValue } from './hooks/useDebouncedValue'
 import { useMessageContext } from './hooks/useMessageContext'
 import { useMessagesFeed } from './hooks/useMessagesFeed'
 import { useSearchMessages } from './hooks/useSearchMessages'
-import type { MessageDto } from './types/api'
 import './App.css'
 
 const FEED_PAGE_SIZE = 20
@@ -22,31 +22,6 @@ function parsePositiveInt(value: string | null): number | null {
   }
 
   return parsed
-}
-
-function shouldCompactWithPrevious(messages: MessageDto[], index: number): boolean {
-  if (index <= 0) {
-    return false
-  }
-
-  const current = messages[index]
-  const previous = messages[index - 1]
-  if (!current || !previous) {
-    return false
-  }
-
-  if (current.authorId !== previous.authorId) {
-    return false
-  }
-
-  const currentTime = new Date(current.messageTimestamp).getTime()
-  const previousTime = new Date(previous.messageTimestamp).getTime()
-  if (Number.isNaN(currentTime) || Number.isNaN(previousTime)) {
-    return false
-  }
-
-  const diffMs = Math.abs(currentTime - previousTime)
-  return diffMs <= 5 * 60 * 1000
 }
 
 function App() {
@@ -346,16 +321,12 @@ function App() {
     setFeedDir('next')
   }
 
-  function formatTimestamp(value: string): string {
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) {
-      return value
-    }
-
-    return date.toLocaleString('es-MX', {
-      dateStyle: 'short',
-      timeStyle: 'short',
-    })
+  function resetTimeline() {
+    setContextMessageId(null)
+    setHighlightedMessageId(null)
+    setFeedCursor('')
+    setFeedDir('next')
+    messagesFeed.refetch()
   }
 
   return (
@@ -366,73 +337,21 @@ function App() {
           <p className="discord-subtitle">Búsqueda en historial con render estilo Discord</p>
         </header>
 
-        <div className="discord-search-block">
-          <label htmlFor="search-input" className="discord-search-label">
-            Buscar mensajes (mínimo 2 caracteres)
-          </label>
-          <input
-            id="search-input"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Ej. sus conversaciones siempre terminan en el mismo punto"
-            className="discord-search-input"
-          />
-
-          <div className="discord-filter-grid">
-            <div>
-              <label htmlFor="author-input" className="discord-search-label">
-                Filtrar por autor
-              </label>
-              <input
-                id="author-input"
-                value={authorFilter}
-                onChange={(event) => setAuthorFilter(event.target.value)}
-                placeholder="Ej. elpinchealx / Kaimargonar"
-                className="discord-search-input"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="from-date-input" className="discord-search-label">
-                Desde
-              </label>
-              <input
-                id="from-date-input"
-                type="date"
-                value={fromDate}
-                onChange={(event) => setFromDate(event.target.value)}
-                className="discord-search-input"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="to-date-input" className="discord-search-label">
-                Hasta
-              </label>
-              <input
-                id="to-date-input"
-                type="date"
-                value={toDate}
-                onChange={(event) => setToDate(event.target.value)}
-                className="discord-search-input"
-              />
-            </div>
-          </div>
-
-          {(authorFilter || fromDate || toDate) && (
-            <button
-              type="button"
-              className="discord-clear-filters"
-              onClick={() => {
-                setAuthorFilter('')
-                setFromDate('')
-                setToDate('')
-              }}
-            >
-              Limpiar filtros
-            </button>
-          )}
-        </div>
+        <SearchFilters
+          query={query}
+          authorFilter={authorFilter}
+          fromDate={fromDate}
+          toDate={toDate}
+          onQueryChange={setQuery}
+          onAuthorFilterChange={setAuthorFilter}
+          onFromDateChange={setFromDate}
+          onToDateChange={setToDate}
+          onClearFilters={() => {
+            setAuthorFilter('')
+            setFromDate('')
+            setToDate('')
+          }}
+        />
 
         {activeState.isLoading && <p data-testid="loading-state" className="discord-state">Cargando...</p>}
         {activeState.error && <p data-testid="error-state" className="discord-state error">Error: {activeState.error}</p>}
@@ -443,153 +362,21 @@ function App() {
         )}
 
         {activeState.data && activeState.data.items.length > 0 && (
-          <section className="discord-messages" aria-label="Mensajes">
-            {!isSearchMode && (
-              <div className="discord-pagination discord-pagination-top">
-                <button
-                  type="button"
-                  className="discord-pagination-button"
-                  onClick={openPreviousMessages}
-                  disabled={!activeState.data.prevCursor}
-                >
-                  Mensajes anteriores
-                </button>
-                <button
-                  type="button"
-                  className="discord-pagination-button"
-                  onClick={openNextMessages}
-                  disabled={!activeState.data.nextCursor}
-                >
-                  Mensajes siguientes
-                </button>
-              </div>
-            )}
-
-            <div ref={scrollRef} className="discord-message-scroller">
-              {messagesFeed.isLoadingPrevious && !isSearchMode && contextMessageId === null && (
-                <p className="discord-auto-load-indicator discord-auto-load-indicator-top">Cargando más...</p>
-              )}
-
-              <div
-                className="discord-message-virtual-space"
-                style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-              >
-                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                  const message = activeItems[virtualRow.index]
-                  if (!message) {
-                    return null
-                  }
-
-                  const isCompact = shouldCompactWithPrevious(activeItems, virtualRow.index)
-
-                  return (
-                    <article
-                      key={message.id}
-                      ref={rowVirtualizer.measureElement}
-                      data-index={virtualRow.index}
-                      className={`discord-message-row${isCompact ? ' discord-message-row-compact' : ''}${highlightedMessageId === message.id ? ' discord-message-row-highlighted' : ''}`}
-                      style={{ transform: `translateY(${virtualRow.start}px)` }}
-                      onClick={isSearchMode ? () => openMessageContext(message.id) : undefined}
-                      role={isSearchMode ? 'button' : undefined}
-                      tabIndex={isSearchMode ? 0 : undefined}
-                      onKeyDown={
-                        isSearchMode
-                          ? (event) => {
-                              if (event.key === 'Enter' || event.key === ' ') {
-                                event.preventDefault()
-                                openMessageContext(message.id)
-                              }
-                            }
-                          : undefined
-                      }
-                    >
-                      {!isCompact ? (
-                        <div className="discord-avatar" aria-hidden="true">
-                          {message.authorName.slice(0, 1).toUpperCase()}
-                        </div>
-                      ) : (
-                        <div className="discord-avatar-spacer" aria-hidden="true" />
-                      )}
-
-                      <div className={`discord-message-body${isCompact ? ' discord-message-body-compact' : ''}`}>
-                        {!isCompact && (
-                          <header className="discord-message-header">
-                            <strong className="discord-author">{message.authorName}</strong>
-                            <a
-                              className="discord-timestamp discord-timestamp-link"
-                              href={`${window.location.pathname}?focus=${message.id}`}
-                              onClick={(event) => {
-                                event.preventDefault()
-                                event.stopPropagation()
-                                openMessageContext(message.id)
-                              }}
-                            >
-                              {formatTimestamp(message.messageTimestamp)}
-                            </a>
-                          </header>
-                        )}
-
-                        <MessageContent
-                          content={message.content}
-                          attachmentsRaw={message.attachmentsRaw}
-                          reactionsRaw={message.reactionsRaw}
-                        />
-                      </div>
-                    </article>
-                  )
-                })}
-              </div>
-
-              {messagesFeed.isLoadingNext && !isSearchMode && contextMessageId === null && (
-                <p className="discord-auto-load-indicator discord-auto-load-indicator-bottom">Cargando más...</p>
-              )}
-            </div>
-
-            <div className="discord-pagination">
-              {!isSearchMode && (
-                <button
-                  type="button"
-                  className="discord-pagination-button"
-                  onClick={openPreviousMessages}
-                  disabled={!activeState.data.prevCursor}
-                >
-                  Mensajes anteriores
-                </button>
-              )}
-
-              {((isSearchMode && activeState.data.nextCursor) || (!isSearchMode && activeState.data.nextCursor)) && (
-                <button
-                  type="button"
-                  className="discord-pagination-button"
-                  onClick={openNextMessages}
-                >
-                  {isSearchMode ? 'Siguiente página de resultados' : 'Mensajes siguientes'}
-                </button>
-              )}
-
-              {!isSearchMode && contextMessageId && (
-                <button
-                  type="button"
-                  className="discord-pagination-button discord-secondary-button"
-                  onClick={() => {
-                    setContextMessageId(null)
-                    setHighlightedMessageId(null)
-                    setFeedCursor('')
-                    setFeedDir('next')
-                    messagesFeed.refetch()
-                  }}
-                >
-                  Volver al inicio del timeline
-                </button>
-              )}
-            </div>
-
-            {isSearchMode && activeState.data.nextCursor && (
-              <div className="discord-pagination">
-                <p className="discord-search-hint">Haz click en un resultado para verlo en contexto dentro del timeline.</p>
-              </div>
-            )}
-          </section>
+          <TimelineSection
+            data={activeState.data}
+            items={activeItems}
+            isSearchMode={isSearchMode}
+            isContextMode={contextMessageId !== null}
+            highlightedMessageId={highlightedMessageId}
+            isLoadingPrevious={messagesFeed.isLoadingPrevious}
+            isLoadingNext={messagesFeed.isLoadingNext}
+            scrollRef={scrollRef}
+            rowVirtualizer={rowVirtualizer}
+            onOpenMessageContext={openMessageContext}
+            onOpenPreviousMessages={openPreviousMessages}
+            onOpenNextMessages={openNextMessages}
+            onResetTimeline={resetTimeline}
+          />
         )}
       </section>
     </main>
