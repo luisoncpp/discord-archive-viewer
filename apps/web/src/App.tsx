@@ -133,7 +133,7 @@ function App() {
             id="search-input"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Ej. ya me bañe"
+            placeholder="Ej. sus conversaciones siempre terminan en el mismo punto"
             className="discord-search-input"
           />
 
@@ -146,7 +146,7 @@ function App() {
                 id="author-input"
                 value={authorFilter}
                 onChange={(event) => setAuthorFilter(event.target.value)}
-                placeholder="Ej. luis / bloodstainedrabbit"
+                placeholder="Ej. elpinchealx / Kaimargonar"
                 className="discord-search-input"
               />
             </div>
