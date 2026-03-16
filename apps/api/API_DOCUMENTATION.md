@@ -1,12 +1,13 @@
 # API Documentation — Discord Archive Viewer
 
 ## 1) Resumen
-Esta API corre sobre Cloudflare Workers (Hono) y expone endpoints REST para:
-- listar mensajes paginados por cursor,
-- buscar mensajes con FTS,
-- listar autores.
+La API corre sobre Cloudflare Workers (Hono) y usa D1 como persistencia.
 
-La persistencia usa D1 (`messages` + `messages_fts`).
+Capacidades actuales:
+- listado de mensajes por cursor,
+- contexto de mensaje (anteriores + siguientes alrededor de un id),
+- búsqueda por FTS y/o filtros (`author`, `from`, `to`),
+- listado de autores.
 
 ## 2) Cómo usarla
 
@@ -16,20 +17,26 @@ La persistencia usa D1 (`messages` + `messages_fts`).
 - D1 configurado en `wrangler.toml` (binding `DB`)
 
 ## 2.2 Levantar en local
-Desde la raíz del repo:
+Desde raíz:
 
 ```bash
 npm run dev:api
 ```
 
-Esto ejecuta `wrangler dev` en `apps/api`.
+Para usar la base remota en modo desarrollo:
+
+```bash
+npm run dev:api:remote
+```
+
+Nota: `wrangler dev --remote` requiere tener subdominio `workers.dev` registrado en tu cuenta Cloudflare.
 
 ## 2.3 Verificar salud
 ```bash
 curl "http://127.0.0.1:8787/api/health"
 ```
 
-Respuesta esperada:
+Response 200:
 ```json
 {
   "ok": true,
@@ -41,35 +48,15 @@ Respuesta esperada:
 ## 3) Endpoints
 
 ## 3.1 GET /api/health
-Endpoint simple para comprobar que la API está arriba.
-
-### Response 200
-```json
-{
-  "ok": true,
-  "service": "api",
-  "runtime": "cloudflare-workers"
-}
-```
+Healthcheck del worker.
 
 ## 3.2 GET /api/messages
-Lista mensajes con paginación por cursor.
+Lista mensajes paginados por cursor.
 
 ### Query params
-- `cursor` (opcional): `number` entero positivo (id del mensaje)
-- `dir` (opcional): `next | prev` (default: `next`)
-- `limit` (opcional): entero positivo, máximo `100` (default: `100`)
-
-### Ejemplos
-Primera página:
-```bash
-curl "http://127.0.0.1:8787/api/messages"
-```
-
-Página siguiente desde cursor:
-```bash
-curl "http://127.0.0.1:8787/api/messages?cursor=1200&dir=next&limit=50"
-```
+- `cursor` (opcional): `number` entero positivo
+- `dir` (opcional): `next | prev` (default `next`)
+- `limit` (opcional): entero positivo, máximo `100` (default `100`)
 
 ### Response 200
 ```json
@@ -87,29 +74,25 @@ curl "http://127.0.0.1:8787/api/messages?cursor=1200&dir=next&limit=50"
     }
   ],
   "nextCursor": "50",
-  "prevCursor": "1"
+  "prevCursor": null
 }
 ```
 
-## 3.3 GET /api/search
-Busca mensajes por contenido usando FTS.
+## 3.3 GET /api/messages/context
+Obtiene una ventana centrada en un mensaje específico para mostrarlo en contexto.
 
 ### Query params
-- `q` (requerido): texto de búsqueda (min `2`, max `200`)
-- `cursor` (opcional): entero positivo (id)
-- `limit` (opcional): entero positivo, máximo `50` (default: `50`)
+- `id` (requerido): id del mensaje objetivo
+- `before` (opcional): cantidad de mensajes anteriores (default `10`, max `50`)
+- `after` (opcional): cantidad de mensajes siguientes (default `10`, max `50`)
 
-### Ejemplos
+### Ejemplo
 ```bash
-curl "http://127.0.0.1:8787/api/search?q=hola"
-```
-
-```bash
-curl "http://127.0.0.1:8787/api/search?q=discord&cursor=10000&limit=20"
+curl "http://127.0.0.1:8787/api/messages/context?id=996333&before=10&after=10"
 ```
 
 ### Response 200
-Misma forma de paginación que `/api/messages`:
+Misma forma de `CursorPage<MessageDto>`:
 ```json
 {
   "items": [],
@@ -118,34 +101,57 @@ Misma forma de paginación que `/api/messages`:
 }
 ```
 
-## 3.4 GET /api/authors
-Lista autores por frecuencia de mensajes.
+## 3.4 GET /api/search
+Búsqueda de mensajes por contenido (FTS) y filtros.
 
 ### Query params
-- `query` (opcional): filtra por `author_name` o `author_id` (LIKE)
-- `limit` (opcional): entero positivo, máximo `50` (default: `50`)
+- `q` (opcional): texto de búsqueda (si se envía, min `2`, max `200`)
+- `author` (opcional): filtro por `author_name` o `author_id`
+- `from` (opcional): fecha mínima (`YYYY-MM-DD`)
+- `to` (opcional): fecha máxima (`YYYY-MM-DD`)
+- `cursor` (opcional): entero positivo
+- `limit` (opcional): entero positivo, máximo `50` (default `50`)
+
+### Reglas de validación
+- Debe existir al menos un criterio: `q` o (`author`/`from`/`to`).
+- Si `from` y `to` vienen juntos, `from <= to`.
+- Si `q` no se envía, la búsqueda funciona solo con filtros (`author`, `from`, `to`) sobre `messages`.
 
 ### Ejemplos
+Búsqueda por texto:
 ```bash
-curl "http://127.0.0.1:8787/api/authors"
+curl "http://127.0.0.1:8787/api/search?q=hola"
 ```
 
+Búsqueda por filtros sin texto:
 ```bash
-curl "http://127.0.0.1:8787/api/authors?query=luis&limit=20"
+curl "http://127.0.0.1:8787/api/search?author=luis&from=2020-01-01&to=2020-01-31"
+```
+
+Búsqueda paginada:
+```bash
+curl "http://127.0.0.1:8787/api/search?q=discord&cursor=10000&limit=20"
 ```
 
 ### Response 200
 ```json
 {
-  "items": [
-    {
-      "authorId": "123",
-      "authorName": "alice",
-      "messageCount": 30
-    }
-  ]
+  "items": [],
+  "nextCursor": null,
+  "prevCursor": null
 }
 ```
+
+Notas de paginación:
+- `nextCursor` avanza a resultados más antiguos.
+- `prevCursor` vuelve hacia resultados más recientes dentro del mismo flujo.
+
+## 3.5 GET /api/authors
+Lista autores por frecuencia de mensajes.
+
+### Query params
+- `query` (opcional): filtra por `author_name` o `author_id` (LIKE)
+- `limit` (opcional): entero positivo, máximo `50` (default `50`)
 
 ## 4) Formato de errores
 
@@ -153,12 +159,12 @@ curl "http://127.0.0.1:8787/api/authors?query=luis&limit=20"
 ```json
 {
   "code": "validation_error",
-  "message": "Invalid query params for /api/messages",
+  "message": "Invalid query params for /api/search",
   "details": {}
 }
 ```
 
-## 4.2 Error de búsqueda FTS (400)
+## 4.2 Error de búsqueda (400)
 ```json
 {
   "code": "search_query_error",
@@ -178,59 +184,45 @@ curl "http://127.0.0.1:8787/api/authors?query=luis&limit=20"
 ## 5) Responsabilidades por módulo
 
 ## 5.1 `modules/messages`
-- **Controller (`messages.controller`)**
-  - Parsea/valida query params de `/api/messages` con `zod`.
-  - Traduce errores de validación a `HttpError(400)`.
-- **Use case (`list-messages.use-case`)**
-  - Define contrato de entrada/salida para listar mensajes.
-  - Orquesta la operación delegando en el repositorio.
+- `messages.controller`
+  - valida `/api/messages` y `/api/messages/context` con Zod.
+- `list-messages.use-case`
+  - contrato para timeline paginado.
+- `get-message-context.use-case`
+  - contrato para contexto alrededor de mensaje.
 
 ## 5.2 `modules/search`
-- **Controller (`search.controller`)**
-  - Valida `q`, `cursor`, `limit`.
-  - Captura errores de ejecución FTS y los traduce a `search_query_error`.
-- **Use case (`search-messages.use-case`)**
-  - Define contrato de búsqueda y delega en repositorio.
+- `search.controller`
+  - valida criterios de búsqueda y reglas de rango de fecha.
+- `search-messages.use-case`
+  - define contrato y delega al repositorio.
 
 ## 5.3 `modules/authors`
-- **Controller (`authors.controller`)**
-  - Valida `query` y `limit`.
-  - Devuelve autores en objeto `{ items }`.
-- **Use case (`list-authors.use-case`)**
-  - Define contrato para consultar autores y delega en repositorio.
+- `authors.controller`
+  - valida `query` y `limit`.
+- `list-authors.use-case`
+  - contrato para obtener autores.
 
 ## 5.4 `shared/db`
-- **`D1ArchiveRepository`**
-  - Implementación concreta de acceso a D1.
-  - Ejecuta queries SQL para mensajes, búsqueda FTS y autores.
-  - Mapea filas SQL (snake_case) a DTOs del dominio API (camelCase).
+- `D1ArchiveRepository`
+  - consultas SQL de mensajes, contexto, búsqueda y autores,
+  - mapeo snake_case -> camelCase,
+  - sanitización de query FTS (`toFtsMatchQuery`).
 
-## 5.5 `shared/types`
-- **`api.ts`**
-  - Contratos de `MessageDto`, `AuthorDto`, `CursorPage`, `ApiErrorPayload`.
-- **`env.ts`**
-  - Contrato de bindings de Worker (`DB`, `APP_NAME`).
+## 5.5 `shared/errors`
+- `HttpError`
+  - error HTTP tipado con `status` + payload serializable.
 
-## 5.6 `shared/errors`
-- **`HttpError`**
-  - Error de dominio HTTP con `status` + payload serializable.
-  - Consumido por el manejador global de errores.
+## 5.6 `worker.ts`
+- registro de rutas `/api/*`,
+- manejador global de errores (`HttpError` y fallback 500).
 
-## 5.7 `worker.ts`
-- Composición del router Hono.
-- Registro de rutas `/api/*`.
-- Manejador global de errores (`HttpError` y fallback 500).
-
-## 6) Principios de diseño aplicados
-- **S (Single Responsibility):** controllers validan/serializan, use-cases orquestan, repository consulta DB.
-- **D (Dependency Inversion):** use-cases dependen de interfaces de repositorio.
-- **I (Interface Segregation):** contratos separados por capacidad (`listMessages`, `searchMessages`, `listAuthors`).
-
-## 7) Scripts útiles
+## 6) Scripts útiles
 Desde raíz:
 
 ```bash
 npm run dev:api
+npm run dev:api:remote
 npm run test -w apps/api
 npm run lint -w apps/api
 npm run build -w apps/api

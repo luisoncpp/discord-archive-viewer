@@ -6,8 +6,22 @@ import { useMessagesFeed } from './hooks/useMessagesFeed'
 import { useSearchMessages } from './hooks/useSearchMessages'
 import './App.css'
 
+function parsePositiveInt(value: string | null): number | null {
+  if (!value) {
+    return null
+  }
+
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null
+  }
+
+  return parsed
+}
+
 function App() {
   const initialParams = useMemo(() => new URLSearchParams(window.location.search), [])
+  const initialFocusId = parsePositiveInt(initialParams.get('focus'))
   const [query, setQuery] = useState(initialParams.get('q') ?? '')
   const [authorFilter, setAuthorFilter] = useState(initialParams.get('author') ?? '')
   const [fromDate, setFromDate] = useState(initialParams.get('from') ?? '')
@@ -15,8 +29,8 @@ function App() {
   const [searchCursor, setSearchCursor] = useState(initialParams.get('cursor') ?? '')
   const [feedCursor, setFeedCursor] = useState('')
   const [feedDir, setFeedDir] = useState<'next' | 'prev'>('next')
-  const [contextMessageId, setContextMessageId] = useState<number | null>(null)
-  const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null)
+  const [contextMessageId, setContextMessageId] = useState<number | null>(initialFocusId)
+  const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(initialFocusId)
 
   const debouncedQuery = useDebouncedValue(query, 300)
 
@@ -56,11 +70,14 @@ function App() {
     if (isSearchMode && searchCursor) {
       params.set('cursor', searchCursor)
     }
+    if (!isSearchMode && contextMessageId) {
+      params.set('focus', String(contextMessageId))
+    }
 
     const queryString = params.toString()
     const nextUrl = `${window.location.pathname}${queryString ? `?${queryString}` : ''}`
     window.history.replaceState({}, '', nextUrl)
-  }, [query, authorFilter, fromDate, toDate, searchCursor, isSearchMode])
+  }, [query, authorFilter, fromDate, toDate, searchCursor, isSearchMode, contextMessageId])
 
   useEffect(() => {
     setSearchCursor('')
