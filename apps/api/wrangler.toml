@@ -5,3 +5,9 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 APP_NAME = "discord-archive-api"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "el-sillon"
+database_id = "8a7e74cb-1115-46d3-ae0d-30f65b771b64"
+preview_database_id = "8a7e74cb-1115-46d3-ae0d-30f65b771b64"

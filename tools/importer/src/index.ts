@@ -1,17 +1,14 @@
-import { z } from 'zod'
+import { parseCliOptions } from './cli.js'
+import { runImport } from './importer.js'
 
-const CliArgsSchema = z.object({
-  csvPath: z.string().min(1),
+async function main() {
+  const options = parseCliOptions(process.argv)
+  const metrics = await runImport(options)
+
+  console.log(JSON.stringify(metrics, null, 2))
+}
+
+main().catch((error: unknown) => {
+  console.error(error)
+  process.exitCode = 1
 })
-
-function parseArgs(argv: string[]) {
-  const csvPath = argv[2] ?? ''
-  return CliArgsSchema.parse({ csvPath })
-}
-
-function main() {
-  const args = parseArgs(process.argv)
-  console.log('Importer ready (Fase 0):', args.csvPath)
-}
-
-main()

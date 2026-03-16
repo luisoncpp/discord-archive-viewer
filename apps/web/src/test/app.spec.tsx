@@ -1,10 +1,25 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from '../App'
 
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
 describe('App', () => {
-  it('renders starter heading', () => {
+  it('renders integration heading', () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [],
+          nextCursor: null,
+          prevCursor: null,
+        }),
+        { status: 200 },
+      ),
+    )
+
     render(<App />)
-    expect(screen.getByText(/Get started/i)).toBeInTheDocument()
+    expect(screen.getByText(/Discord Archive Viewer API Integration/i)).toBeInTheDocument()
   })
 })

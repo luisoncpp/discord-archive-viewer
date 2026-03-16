@@ -9,4 +9,12 @@ describe('worker health', () => {
     expect(response.status).toBe(200)
     expect(body.ok).toBe(true)
   })
+
+  it('returns validation error for search without q', async () => {
+    const response = await app.request('http://localhost/api/search')
+    const body = (await response.json()) as { code: string }
+
+    expect(response.status).toBe(400)
+    expect(body.code).toBe('validation_error')
+  })
 })
