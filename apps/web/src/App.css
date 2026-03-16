@@ -21,7 +21,7 @@
 }
 
 .discord-toolbar {
-  padding: 14px 20px;
+  padding: 0;
   border-bottom: 1px solid #1e1f22;
   position: sticky;
   top: 0;
@@ -29,17 +29,12 @@
   z-index: 5;
 }
 
-.discord-title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: #f2f3f5;
-}
-
-.discord-subtitle {
-  margin: 3px 0 0;
-  font-size: 12px;
-  color: #949ba4;
+.discord-banner {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 180px;
+  object-fit: cover;
 }
 
 .discord-search-block {

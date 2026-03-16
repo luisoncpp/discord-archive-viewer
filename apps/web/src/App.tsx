@@ -118,8 +118,7 @@ function App() {
     <main className="discord-page">
       <section className="discord-panel">
         <header className="discord-toolbar">
-          <h1 className="discord-title">Discord Archive Viewer</h1>
-          <p className="discord-subtitle">Búsqueda en historial con render estilo Discord</p>
+          <img className="discord-banner" src="/banner.jpg" alt="Discord Archive Viewer" />
         </header>
 
         <SearchFilters

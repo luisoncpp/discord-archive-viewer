@@ -126,7 +126,7 @@ describe('App', () => {
   it('renders heading and feed messages', () => {
     render(<App />)
 
-    expect(screen.getByText(/Discord Archive Viewer/i)).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /Discord Archive Viewer/i })).toBeInTheDocument()
     expect(screen.getByText('message-1')).toBeInTheDocument()
     expect(screen.getByText('message-2')).toBeInTheDocument()
   })
