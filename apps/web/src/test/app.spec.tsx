@@ -47,6 +47,7 @@ type FeedState = {
   refetch: () => void
   loadNext: () => Promise<boolean>
   loadPrevious: () => Promise<boolean>
+  resetWithData: (page: MessagesPageDto) => void
 }
 
 type QueryState = {
@@ -88,6 +89,7 @@ function createFeedState(page: MessagesPageDto): FeedState {
     refetch: vi.fn(),
     loadNext: vi.fn().mockResolvedValue(true),
     loadPrevious: vi.fn().mockResolvedValue(true),
+    resetWithData: vi.fn(),
   }
 }
 
@@ -214,6 +216,217 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(loadPrevious).toHaveBeenCalled()
+    })
+  })
+
+  it('hydrates feed from context before continuing with bottom-edge loading', async () => {
+    window.history.replaceState({}, '', '/?focus=42')
+
+    const contextPage = buildPage([buildMessage(42), buildMessage(43)], {
+      next: 'cursor-next',
+      prev: null,
+    })
+    const resetWithData = vi.fn()
+    const loadNext = vi.fn().mockResolvedValue(true)
+    const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, 'scrollHeight')
+    const clientHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, 'clientHeight')
+    const scrollTopDescriptor = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, 'scrollTop')
+
+    messagesFeedState = {
+      ...messagesFeedState,
+      loadNext,
+      resetWithData,
+    }
+    contextState = createQueryState(contextPage)
+
+    mockUseMessagesFeed.mockImplementation(() => messagesFeedState)
+    mockUseMessageContext.mockImplementation((id: number | null) => {
+      if (id === 42) {
+        return contextState
+      }
+
+      return createQueryState(null)
+    })
+
+    Object.defineProperty(HTMLDivElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get() {
+        return this.classList.contains('discord-message-scroller') ? 1200 : 0
+      },
+    })
+    Object.defineProperty(HTMLDivElement.prototype, 'clientHeight', {
+      configurable: true,
+      get() {
+        return this.classList.contains('discord-message-scroller') ? 200 : 0
+      },
+    })
+    Object.defineProperty(HTMLDivElement.prototype, 'scrollTop', {
+      configurable: true,
+      get() {
+        return this.classList.contains('discord-message-scroller') ? 0 : 0
+      },
+      set() {
+        return undefined
+      },
+    })
+
+    try {
+      const { container } = render(<App />)
+      const scroller = container.querySelector('.discord-message-scroller') as HTMLDivElement
+
+      resetWithData.mockClear()
+      loadNext.mockClear()
+
+      Object.defineProperty(scroller, 'scrollTop', { configurable: true, writable: true, value: 1000 })
+
+      fireEvent.scroll(scroller)
+
+      await waitFor(() => {
+        expect(resetWithData).toHaveBeenCalledWith(contextPage)
+      })
+
+      if (loadNext.mock.calls.length > 0) {
+        expect(resetWithData.mock.invocationCallOrder[0]).toBeLessThan(loadNext.mock.invocationCallOrder[0])
+      }
+    } finally {
+      if (scrollHeightDescriptor) {
+        Object.defineProperty(HTMLDivElement.prototype, 'scrollHeight', scrollHeightDescriptor)
+      } else {
+        Reflect.deleteProperty(HTMLDivElement.prototype, 'scrollHeight')
+      }
+
+      if (clientHeightDescriptor) {
+        Object.defineProperty(HTMLDivElement.prototype, 'clientHeight', clientHeightDescriptor)
+      } else {
+        Reflect.deleteProperty(HTMLDivElement.prototype, 'clientHeight')
+      }
+
+      if (scrollTopDescriptor) {
+        Object.defineProperty(HTMLDivElement.prototype, 'scrollTop', scrollTopDescriptor)
+      } else {
+        Reflect.deleteProperty(HTMLDivElement.prototype, 'scrollTop')
+      }
+    }
+  })
+
+  it('hydrates feed from context before continuing with top-edge loading', async () => {
+    window.history.replaceState({}, '', '/?focus=42')
+
+    const contextPage = buildPage([buildMessage(42), buildMessage(43)], {
+      next: null,
+      prev: 'cursor-prev',
+    })
+    const resetWithData = vi.fn()
+    const loadPrevious = vi.fn().mockResolvedValue(true)
+
+    messagesFeedState = {
+      ...messagesFeedState,
+      loadPrevious,
+      resetWithData,
+    }
+    contextState = createQueryState(contextPage)
+
+    mockUseMessagesFeed.mockImplementation(() => messagesFeedState)
+    mockUseMessageContext.mockImplementation((id: number | null) => {
+      if (id === 42) {
+        return contextState
+      }
+
+      return createQueryState(null)
+    })
+
+    const { container } = render(<App />)
+    const scroller = container.querySelector('.discord-message-scroller') as HTMLDivElement
+
+  resetWithData.mockClear()
+  loadPrevious.mockClear()
+
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 1200 })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 300 })
+    Object.defineProperty(scroller, 'scrollTop', { configurable: true, writable: true, value: 300 })
+    fireEvent.scroll(scroller)
+
+    scroller.scrollTop = 0
+    fireEvent.scroll(scroller)
+
+    await waitFor(() => {
+      expect(resetWithData).toHaveBeenCalledWith(contextPage)
+    })
+
+    if (loadPrevious.mock.calls.length > 0) {
+      expect(resetWithData.mock.invocationCallOrder[0]).toBeLessThan(loadPrevious.mock.invocationCallOrder[0])
+    }
+  })
+
+  it('scrolls to the focused message only once for the same highlighted id', async () => {
+    window.history.replaceState({}, '', '/?focus=42')
+
+    contextState = createQueryState(buildPage([buildMessage(40), buildMessage(42)], {
+      next: null,
+      prev: 'cursor-prev',
+    }))
+    mockUseMessageContext.mockImplementation((id: number | null) => {
+      if (id === 42) {
+        return contextState
+      }
+
+      return createQueryState(null)
+    })
+
+    const view = render(<App />)
+
+    await waitFor(() => {
+      expect(mockScrollToIndex).toHaveBeenCalledTimes(1)
+      expect(mockScrollToIndex).toHaveBeenCalledWith(1, { align: 'center' })
+      expect(screen.getByText('message-42')).toBeInTheDocument()
+    })
+
+    contextState = createQueryState(buildPage([buildMessage(40), buildMessage(42), buildMessage(44)], {
+      next: null,
+      prev: 'cursor-prev',
+    }))
+
+    view.rerender(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByText('message-44')).toBeInTheDocument()
+    })
+
+    expect(mockScrollToIndex).toHaveBeenCalledTimes(1)
+  })
+
+  it('refetches the feed when resetting the timeline from context mode', async () => {
+    window.history.replaceState({}, '', '/?focus=42')
+
+    const refetch = vi.fn()
+    messagesFeedState = {
+      ...messagesFeedState,
+      refetch,
+    }
+    contextState = createQueryState(buildPage([buildMessage(42), buildMessage(43)], {
+      next: null,
+      prev: 'cursor-prev',
+    }))
+
+    mockUseMessagesFeed.mockImplementation(() => messagesFeedState)
+    mockUseMessageContext.mockImplementation((id: number | null) => {
+      if (id === 42) {
+        return contextState
+      }
+
+      return createQueryState(null)
+    })
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Volver al inicio del timeline/i })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Volver al inicio del timeline/i }))
+
+    await waitFor(() => {
+      expect(refetch).toHaveBeenCalled()
     })
   })
 })
