@@ -24,9 +24,7 @@ type TimelineSectionProps = {
   scrollRef: RefObject<HTMLDivElement | null>
   rowVirtualizer: RowVirtualizerLike
   onOpenMessageContext: (messageId: number) => void
-  onOpenPreviousMessages: () => void
   onOpenNextMessages: () => void
-  onResetTimeline: () => void
 }
 
 function shouldCompactWithPrevious(messages: MessageDto[], index: number): boolean {
@@ -77,33 +75,10 @@ export function TimelineSection({
   scrollRef,
   rowVirtualizer,
   onOpenMessageContext,
-  onOpenPreviousMessages,
   onOpenNextMessages,
-  onResetTimeline,
 }: TimelineSectionProps) {
   return (
     <section className="discord-messages" aria-label="Mensajes">
-      {!isSearchMode && (
-        <div className="discord-pagination discord-pagination-top">
-          <button
-            type="button"
-            className="discord-pagination-button"
-            onClick={onOpenPreviousMessages}
-            disabled={!data.prevCursor}
-          >
-            Mensajes anteriores
-          </button>
-          <button
-            type="button"
-            className="discord-pagination-button"
-            onClick={onOpenNextMessages}
-            disabled={!data.nextCursor}
-          >
-            Mensajes siguientes
-          </button>
-        </div>
-      )}
-
       <div ref={scrollRef} className="discord-message-scroller">
         {isLoadingPrevious && !isSearchMode && !isContextMode && (
           <p className="discord-auto-load-indicator discord-auto-load-indicator-top">Cargando más...</p>
@@ -185,38 +160,17 @@ export function TimelineSection({
         )}
       </div>
 
-      <div className="discord-pagination">
-        {!isSearchMode && (
-          <button
-            type="button"
-            className="discord-pagination-button"
-            onClick={onOpenPreviousMessages}
-            disabled={!data.prevCursor}
-          >
-            Mensajes anteriores
-          </button>
-        )}
-
-        {data.nextCursor && (
+      {isSearchMode && data.nextCursor && (
+        <div className="discord-pagination">
           <button
             type="button"
             className="discord-pagination-button"
             onClick={onOpenNextMessages}
           >
-            {isSearchMode ? 'Siguiente página de resultados' : 'Mensajes siguientes'}
+            Siguiente página de resultados
           </button>
-        )}
-
-        {!isSearchMode && isContextMode && (
-          <button
-            type="button"
-            className="discord-pagination-button discord-secondary-button"
-            onClick={onResetTimeline}
-          >
-            Volver al inicio del timeline
-          </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {isSearchMode && data.nextCursor && (
         <div className="discord-pagination">

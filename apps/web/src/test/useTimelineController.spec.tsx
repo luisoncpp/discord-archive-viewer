@@ -183,6 +183,22 @@ describe('useTimelineController', () => {
     })
   })
 
+  it('does not auto-load next page before any user scroll event', () => {
+    const { input, feed } = createInput({ contextMessageId: null })
+    const { result, rerender } = renderHook((props: ControllerInput) => useTimelineController(props), {
+      initialProps: input,
+    })
+
+    const scroller = createScroller(1000, 1200, 200)
+    act(() => {
+      result.current.scrollRef.current = scroller
+    })
+
+    rerender(input)
+
+    expect(feed.loadNext).not.toHaveBeenCalled()
+  })
+
   it('hydrates feed from context on bottom scroll before leaving context mode', async () => {
     const page = buildPage([buildMessage(41), buildMessage(42)], { next: 'cursor-next', prev: 'cursor-prev' })
     const { input, feed } = createInput({

@@ -395,38 +395,4 @@ describe('App', () => {
     expect(mockScrollToIndex).toHaveBeenCalledTimes(1)
   })
 
-  it('refetches the feed when resetting the timeline from context mode', async () => {
-    window.history.replaceState({}, '', '/?focus=42')
-
-    const refetch = vi.fn()
-    messagesFeedState = {
-      ...messagesFeedState,
-      refetch,
-    }
-    contextState = createQueryState(buildPage([buildMessage(42), buildMessage(43)], {
-      next: null,
-      prev: 'cursor-prev',
-    }))
-
-    mockUseMessagesFeed.mockImplementation(() => messagesFeedState)
-    mockUseMessageContext.mockImplementation((id: number | null) => {
-      if (id === 42) {
-        return contextState
-      }
-
-      return createQueryState(null)
-    })
-
-    render(<App />)
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Volver al inicio del timeline/i })).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: /Volver al inicio del timeline/i }))
-
-    await waitFor(() => {
-      expect(refetch).toHaveBeenCalled()
-    })
-  })
 })

@@ -198,52 +198,6 @@ export function useTimelineController({
     })
   }, [activeState.data, activeState.isLoading, tryHandleBottomEdgeScroll, tryHandleTopEdgeScroll])
 
-  const runBottomPostRenderAutoLoad = useCallback(() => {
-    if (isSearchMode) {
-      return
-    }
-
-    const element = scrollRef.current
-    if (!element) {
-      return
-    }
-
-    const currentData = activeState.data
-    if (!currentData) {
-      return
-    }
-
-    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight
-    if (distanceFromBottom > AUTO_LOAD_EDGE_THRESHOLD) {
-      return
-    }
-
-    const nextCursor = currentData.nextCursor
-    if (!nextCursor || activeState.isLoading) {
-      return
-    }
-
-    if (contextMessageId !== null) {
-      hydrateFeedAndExitContext(currentData)
-      return
-    }
-
-    if (messagesFeed.isLoadingNext || autoLoadNextCursorRef.current === nextCursor) {
-      return
-    }
-
-    autoLoadNextCursorRef.current = nextCursor
-    void messagesFeed.loadNext().then(resetAutoLoadNextCursorOnFailure)
-  }, [
-    activeState.data,
-    activeState.isLoading,
-    contextMessageId,
-    hydrateFeedAndExitContext,
-    isSearchMode,
-    messagesFeed,
-    resetAutoLoadNextCursorOnFailure,
-  ])
-
   const scrollToHighlightedMessageOnce = useCallback(() => {
     if (!highlightedMessageId) {
       lastScrolledFocusIdRef.current = null
@@ -384,10 +338,6 @@ export function useTimelineController({
   useEffect(function resetBottomAutoLoadCursorOnCursorChange() {
     autoLoadNextCursorRef.current = null
   }, [activeState.data?.nextCursor])
-
-  useEffect(function triggerBottomAutoLoadAfterRender() {
-    runBottomPostRenderAutoLoad()
-  }, [activeItems.length, runBottomPostRenderAutoLoad])
 
   useEffect(function scrollToHighlightedMessageOnFirstAppearance() {
     scrollToHighlightedMessageOnce()

@@ -93,9 +93,7 @@ function App() {
     scrollRef,
     rowVirtualizer,
     openMessageContext,
-    openPreviousMessages,
     openNextMessages,
-    resetTimeline,
   } = useTimelineController({
     isSearchMode,
     activeState,
@@ -160,9 +158,7 @@ function App() {
             scrollRef={scrollRef}
             rowVirtualizer={rowVirtualizer}
             onOpenMessageContext={openMessageContext}
-            onOpenPreviousMessages={openPreviousMessages}
             onOpenNextMessages={openNextMessages}
-            onResetTimeline={resetTimeline}
           />
         )}
       </section>
