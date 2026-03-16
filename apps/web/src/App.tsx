@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { MessageContent } from './features/messages/MessageContent'
 import { useDebouncedValue } from './hooks/useDebouncedValue'
 import { useMessageContext } from './hooks/useMessageContext'
@@ -6,6 +7,9 @@ import { useMessagesFeed } from './hooks/useMessagesFeed'
 import { useSearchMessages } from './hooks/useSearchMessages'
 import type { MessageDto } from './types/api'
 import './App.css'
+
+const FEED_PAGE_SIZE = 40
+const AUTO_LOAD_EDGE_THRESHOLD = 480
 
 function parsePositiveInt(value: string | null): number | null {
   if (!value) {
@@ -60,13 +64,18 @@ function App() {
 
   const debouncedQuery = useDebouncedValue(query, 300)
 
-  const messagesFeed = useMessagesFeed({ limit: 20, cursor: feedCursor || undefined, dir: feedDir })
-  const messageContext = useMessageContext(contextMessageId, 10, 10)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const scrollTopRef = useRef(0)
+  const prependAnchorRef = useRef<{ scrollTop: number; totalSize: number } | null>(null)
+  const autoLoadNextCursorRef = useRef<string | null>(null)
+
+  const messagesFeed = useMessagesFeed({ limit: FEED_PAGE_SIZE, cursor: feedCursor || undefined, dir: feedDir })
+  const messageContext = useMessageContext(contextMessageId, 15, 15)
   const searchState = useSearchMessages(
     debouncedQuery.trim().length >= 2 || authorFilter || fromDate || toDate
       ? {
           q: debouncedQuery || undefined,
-          limit: 20,
+          limit: 50,
           cursor: searchCursor || undefined,
           author: authorFilter || undefined,
           from: fromDate || undefined,
@@ -77,6 +86,15 @@ function App() {
 
   const isSearchMode = Boolean(debouncedQuery.trim().length >= 2 || authorFilter || fromDate || toDate)
   const activeState = isSearchMode ? searchState : contextMessageId ? messageContext : messagesFeed
+  const activeItems = useMemo(() => activeState.data?.items ?? [], [activeState.data?.items])
+
+  const rowVirtualizer = useVirtualizer({
+    count: activeItems.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 92,
+    overscan: 10,
+    getItemKey: (index) => activeItems[index]?.id ?? index,
+  })
 
   useEffect(() => {
     const params = new URLSearchParams()
@@ -109,6 +127,167 @@ function App() {
     setSearchCursor('')
   }, [debouncedQuery, authorFilter, fromDate, toDate])
 
+  useEffect(() => {
+    const anchor = prependAnchorRef.current
+    if (!anchor || messagesFeed.isLoadingPrevious) {
+      return
+    }
+
+    const scroller = scrollRef.current
+    if (!scroller) {
+      prependAnchorRef.current = null
+      return
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const nextTotalSize = rowVirtualizer.getTotalSize()
+      scroller.scrollTop = anchor.scrollTop + Math.max(0, nextTotalSize - anchor.totalSize)
+      prependAnchorRef.current = null
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [activeItems.length, messagesFeed.isLoadingPrevious, rowVirtualizer])
+
+  useEffect(() => {
+    const scroller = scrollRef.current
+    if (!scroller || isSearchMode) {
+      return
+    }
+
+    function handleScroll() {
+      const element = scrollRef.current
+      if (!element) {
+        return
+      }
+
+      const currentScrollTop = element.scrollTop
+      const scrollDirection = currentScrollTop - scrollTopRef.current
+      scrollTopRef.current = currentScrollTop
+
+      const edgeThreshold = AUTO_LOAD_EDGE_THRESHOLD
+      const distanceFromBottom = element.scrollHeight - currentScrollTop - element.clientHeight
+
+      if (
+        scrollDirection < 0 &&
+        currentScrollTop <= edgeThreshold &&
+        activeState.data?.prevCursor &&
+        !activeState.isLoading &&
+        (contextMessageId !== null || !messagesFeed.isLoadingPrevious)
+      ) {
+        if (contextMessageId !== null) {
+          setContextMessageId(null)
+          setFeedCursor(activeState.data.prevCursor)
+          setFeedDir('prev')
+        } else {
+          prependAnchorRef.current = {
+            scrollTop: currentScrollTop,
+            totalSize: rowVirtualizer.getTotalSize(),
+          }
+          void messagesFeed.loadPrevious()
+        }
+
+        return
+      }
+
+      if (
+        distanceFromBottom <= edgeThreshold &&
+        activeState.data?.nextCursor &&
+        (contextMessageId !== null || autoLoadNextCursorRef.current !== activeState.data.nextCursor) &&
+        !activeState.isLoading &&
+        (contextMessageId !== null || !messagesFeed.isLoadingNext)
+      ) {
+        if (contextMessageId !== null) {
+          setContextMessageId(null)
+          setFeedCursor(activeState.data.nextCursor)
+          setFeedDir('next')
+        } else {
+          autoLoadNextCursorRef.current = activeState.data.nextCursor
+          void messagesFeed.loadNext().then((loaded) => {
+            if (!loaded) {
+              autoLoadNextCursorRef.current = null
+            }
+          })
+        }
+      }
+    }
+
+    scrollTopRef.current = scroller.scrollTop
+    scroller.addEventListener('scroll', handleScroll, { passive: true })
+
+    return () => {
+      scroller.removeEventListener('scroll', handleScroll)
+    }
+  }, [
+    activeState,
+    contextMessageId,
+    isSearchMode,
+    messagesFeed,
+    rowVirtualizer,
+  ])
+
+  useEffect(() => {
+    autoLoadNextCursorRef.current = null
+  }, [activeState.data?.nextCursor])
+
+  useEffect(() => {
+    if (isSearchMode) {
+      return
+    }
+
+    const element = scrollRef.current
+    if (!element) {
+      return
+    }
+
+    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight
+    if (distanceFromBottom > AUTO_LOAD_EDGE_THRESHOLD) {
+      return
+    }
+
+    const nextCursor = activeState.data?.nextCursor
+    if (!nextCursor || activeState.isLoading) {
+      return
+    }
+
+    if (contextMessageId !== null) {
+      setContextMessageId(null)
+      setFeedCursor(nextCursor)
+      setFeedDir('next')
+      return
+    }
+
+    if (messagesFeed.isLoadingNext || autoLoadNextCursorRef.current === nextCursor) {
+      return
+    }
+
+    autoLoadNextCursorRef.current = nextCursor
+    void messagesFeed.loadNext().then((loaded) => {
+      if (!loaded) {
+        autoLoadNextCursorRef.current = null
+      }
+    })
+  }, [
+    activeItems.length,
+    activeState.data?.nextCursor,
+    activeState.isLoading,
+    contextMessageId,
+    isSearchMode,
+    messagesFeed,
+  ])
+
+  useEffect(() => {
+    if (!highlightedMessageId || activeItems.length === 0) {
+      return
+    }
+
+    const highlightedIndex = activeItems.findIndex((message) => message.id === highlightedMessageId)
+    if (highlightedIndex >= 0) {
+      rowVirtualizer.scrollToIndex(highlightedIndex, {
+        align: 'center',
+      })
+    }
+  }, [highlightedMessageId, activeItems, rowVirtualizer])
+
   function openMessageContext(messageId: number) {
     setContextMessageId(messageId)
     setHighlightedMessageId(messageId)
@@ -122,6 +301,15 @@ function App() {
   function openPreviousMessages() {
     const prevCursor = activeState.data?.prevCursor
     if (!prevCursor) {
+      return
+    }
+
+    if (!isSearchMode && contextMessageId === null) {
+      prependAnchorRef.current = {
+        scrollTop: scrollRef.current?.scrollTop ?? 0,
+        totalSize: rowVirtualizer.getTotalSize(),
+      }
+      void messagesFeed.loadPrevious()
       return
     }
 
@@ -139,6 +327,11 @@ function App() {
 
     if (isSearchMode) {
       setSearchCursor(nextCursor)
+      return
+    }
+
+    if (contextMessageId === null) {
+      void messagesFeed.loadNext()
       return
     }
 
@@ -246,11 +439,6 @@ function App() {
 
         {activeState.data && activeState.data.items.length > 0 && (
           <section className="discord-messages" aria-label="Mensajes">
-            {(() => {
-              const items = activeState.data.items
-
-              return (
-                <>
             {!isSearchMode && (
               <div className="discord-pagination discord-pagination-top">
                 <button
@@ -272,62 +460,85 @@ function App() {
               </div>
             )}
 
-            {items.map((message, index) => {
-              const isCompact = shouldCompactWithPrevious(items, index)
+            <div ref={scrollRef} className="discord-message-scroller">
+              {messagesFeed.isLoadingPrevious && !isSearchMode && contextMessageId === null && (
+                <p className="discord-auto-load-indicator discord-auto-load-indicator-top">Cargando más...</p>
+              )}
 
-              return (
-                <article
-                  key={message.id}
-                  className={`discord-message-row${isCompact ? ' discord-message-row-compact' : ''}${highlightedMessageId === message.id ? ' discord-message-row-highlighted' : ''}`}
-                  onClick={isSearchMode ? () => openMessageContext(message.id) : undefined}
-                  role={isSearchMode ? 'button' : undefined}
-                  tabIndex={isSearchMode ? 0 : undefined}
-                  onKeyDown={
-                    isSearchMode
-                      ? (event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault()
-                            openMessageContext(message.id)
-                          }
-                        }
-                      : undefined
+              <div
+                className="discord-message-virtual-space"
+                style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+              >
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const message = activeItems[virtualRow.index]
+                  if (!message) {
+                    return null
                   }
-                >
-                  {!isCompact ? (
-                    <div className="discord-avatar" aria-hidden="true">
-                      {message.authorName.slice(0, 1).toUpperCase()}
-                    </div>
-                  ) : (
-                    <div className="discord-avatar-spacer" aria-hidden="true" />
-                  )}
 
-                  <div className={`discord-message-body${isCompact ? ' discord-message-body-compact' : ''}`}>
-                    {!isCompact && (
-                      <header className="discord-message-header">
-                        <strong className="discord-author">{message.authorName}</strong>
-                        <a
-                          className="discord-timestamp discord-timestamp-link"
-                          href={`${window.location.pathname}?focus=${message.id}`}
-                          onClick={(event) => {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            openMessageContext(message.id)
-                          }}
-                        >
-                          {formatTimestamp(message.messageTimestamp)}
-                        </a>
-                      </header>
-                    )}
+                  const isCompact = shouldCompactWithPrevious(activeItems, virtualRow.index)
 
-                    <MessageContent
-                      content={message.content}
-                      attachmentsRaw={message.attachmentsRaw}
-                      reactionsRaw={message.reactionsRaw}
-                    />
-                  </div>
-                </article>
-              )
-            })}
+                  return (
+                    <article
+                      key={message.id}
+                      ref={rowVirtualizer.measureElement}
+                      data-index={virtualRow.index}
+                      className={`discord-message-row${isCompact ? ' discord-message-row-compact' : ''}${highlightedMessageId === message.id ? ' discord-message-row-highlighted' : ''}`}
+                      style={{ transform: `translateY(${virtualRow.start}px)` }}
+                      onClick={isSearchMode ? () => openMessageContext(message.id) : undefined}
+                      role={isSearchMode ? 'button' : undefined}
+                      tabIndex={isSearchMode ? 0 : undefined}
+                      onKeyDown={
+                        isSearchMode
+                          ? (event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault()
+                                openMessageContext(message.id)
+                              }
+                            }
+                          : undefined
+                      }
+                    >
+                      {!isCompact ? (
+                        <div className="discord-avatar" aria-hidden="true">
+                          {message.authorName.slice(0, 1).toUpperCase()}
+                        </div>
+                      ) : (
+                        <div className="discord-avatar-spacer" aria-hidden="true" />
+                      )}
+
+                      <div className={`discord-message-body${isCompact ? ' discord-message-body-compact' : ''}`}>
+                        {!isCompact && (
+                          <header className="discord-message-header">
+                            <strong className="discord-author">{message.authorName}</strong>
+                            <a
+                              className="discord-timestamp discord-timestamp-link"
+                              href={`${window.location.pathname}?focus=${message.id}`}
+                              onClick={(event) => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                openMessageContext(message.id)
+                              }}
+                            >
+                              {formatTimestamp(message.messageTimestamp)}
+                            </a>
+                          </header>
+                        )}
+
+                        <MessageContent
+                          content={message.content}
+                          attachmentsRaw={message.attachmentsRaw}
+                          reactionsRaw={message.reactionsRaw}
+                        />
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+
+              {messagesFeed.isLoadingNext && !isSearchMode && contextMessageId === null && (
+                <p className="discord-auto-load-indicator discord-auto-load-indicator-bottom">Cargando más...</p>
+              )}
+            </div>
 
             <div className="discord-pagination">
               {!isSearchMode && (
@@ -372,9 +583,6 @@ function App() {
                 <p className="discord-search-hint">Haz click en un resultado para verlo en contexto dentro del timeline.</p>
               </div>
             )}
-                </>
-              )
-            })()}
           </section>
         )}
       </section>
