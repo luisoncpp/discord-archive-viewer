@@ -1,15 +1,64 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { MessageContent } from './features/messages/MessageContent'
+import { useDebouncedValue } from './hooks/useDebouncedValue'
 import { useMessagesFeed } from './hooks/useMessagesFeed'
 import { useSearchMessages } from './hooks/useSearchMessages'
 import './App.css'
 
 function App() {
-  const [query, setQuery] = useState('')
-  const messagesFeed = useMessagesFeed({ limit: 20 })
-  const searchState = useSearchMessages(query.trim().length >= 2 ? { q: query, limit: 20 } : null)
+  const initialParams = useMemo(() => new URLSearchParams(window.location.search), [])
+  const [query, setQuery] = useState(initialParams.get('q') ?? '')
+  const [authorFilter, setAuthorFilter] = useState(initialParams.get('author') ?? '')
+  const [fromDate, setFromDate] = useState(initialParams.get('from') ?? '')
+  const [toDate, setToDate] = useState(initialParams.get('to') ?? '')
+  const [searchCursor, setSearchCursor] = useState(initialParams.get('cursor') ?? '')
 
-  const activeState = query.trim().length >= 2 ? searchState : messagesFeed
+  const debouncedQuery = useDebouncedValue(query, 300)
+
+  const messagesFeed = useMessagesFeed({ limit: 20 })
+  const searchState = useSearchMessages(
+    debouncedQuery.trim().length >= 2 || authorFilter || fromDate || toDate
+      ? {
+          q: debouncedQuery || undefined,
+          limit: 20,
+          cursor: searchCursor || undefined,
+          author: authorFilter || undefined,
+          from: fromDate || undefined,
+          to: toDate || undefined,
+        }
+      : null,
+  )
+
+  const isSearchMode = Boolean(debouncedQuery.trim().length >= 2 || authorFilter || fromDate || toDate)
+  const activeState = isSearchMode ? searchState : messagesFeed
+
+  useEffect(() => {
+    const params = new URLSearchParams()
+
+    if (query.trim().length > 0) {
+      params.set('q', query.trim())
+    }
+    if (authorFilter.trim().length > 0) {
+      params.set('author', authorFilter.trim())
+    }
+    if (fromDate) {
+      params.set('from', fromDate)
+    }
+    if (toDate) {
+      params.set('to', toDate)
+    }
+    if (isSearchMode && searchCursor) {
+      params.set('cursor', searchCursor)
+    }
+
+    const queryString = params.toString()
+    const nextUrl = `${window.location.pathname}${queryString ? `?${queryString}` : ''}`
+    window.history.replaceState({}, '', nextUrl)
+  }, [query, authorFilter, fromDate, toDate, searchCursor, isSearchMode])
+
+  useEffect(() => {
+    setSearchCursor('')
+  }, [debouncedQuery, authorFilter, fromDate, toDate])
 
   function formatTimestamp(value: string): string {
     const date = new Date(value)
@@ -42,6 +91,61 @@ function App() {
             placeholder="Ej. ya me bañe"
             className="discord-search-input"
           />
+
+          <div className="discord-filter-grid">
+            <div>
+              <label htmlFor="author-input" className="discord-search-label">
+                Filtrar por autor
+              </label>
+              <input
+                id="author-input"
+                value={authorFilter}
+                onChange={(event) => setAuthorFilter(event.target.value)}
+                placeholder="Ej. luis / bloodstainedrabbit"
+                className="discord-search-input"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="from-date-input" className="discord-search-label">
+                Desde
+              </label>
+              <input
+                id="from-date-input"
+                type="date"
+                value={fromDate}
+                onChange={(event) => setFromDate(event.target.value)}
+                className="discord-search-input"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="to-date-input" className="discord-search-label">
+                Hasta
+              </label>
+              <input
+                id="to-date-input"
+                type="date"
+                value={toDate}
+                onChange={(event) => setToDate(event.target.value)}
+                className="discord-search-input"
+              />
+            </div>
+          </div>
+
+          {(authorFilter || fromDate || toDate) && (
+            <button
+              type="button"
+              className="discord-clear-filters"
+              onClick={() => {
+                setAuthorFilter('')
+                setFromDate('')
+                setToDate('')
+              }}
+            >
+              Limpiar filtros
+            </button>
+          )}
         </div>
 
         {activeState.isLoading && <p data-testid="loading-state" className="discord-state">Cargando...</p>}
@@ -74,6 +178,18 @@ function App() {
                 </div>
               </article>
             ))}
+
+            {isSearchMode && activeState.data.nextCursor && (
+              <div className="discord-pagination">
+                <button
+                  type="button"
+                  className="discord-pagination-button"
+                  onClick={() => setSearchCursor(activeState.data?.nextCursor ?? '')}
+                >
+                  Siguiente página
+                </button>
+              </div>
+            )}
           </section>
         )}
       </section>

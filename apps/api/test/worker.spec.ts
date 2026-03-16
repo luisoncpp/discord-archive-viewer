@@ -10,8 +10,16 @@ describe('worker health', () => {
     expect(body.ok).toBe(true)
   })
 
-  it('returns validation error for search without q', async () => {
+  it('returns validation error for search without any criteria', async () => {
     const response = await app.request('http://localhost/api/search')
+    const body = (await response.json()) as { code: string }
+
+    expect(response.status).toBe(400)
+    expect(body.code).toBe('validation_error')
+  })
+
+  it('returns validation error for invalid date range', async () => {
+    const response = await app.request('http://localhost/api/search?q=hola&from=2024-01-10&to=2024-01-01')
     const body = (await response.json()) as { code: string }
 
     expect(response.status).toBe(400)

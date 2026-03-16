@@ -98,9 +98,12 @@ export async function listMessages(input: ListMessagesInput = {}) {
 }
 
 export type SearchMessagesInput = {
-  q: string
+  q?: string
   cursor?: string
   limit?: number
+  author?: string
+  from?: string
+  to?: string
 }
 
 export async function searchMessages(input: SearchMessagesInput) {
@@ -108,6 +111,9 @@ export async function searchMessages(input: SearchMessagesInput) {
     q: input.q,
     cursor: input.cursor,
     limit: input.limit ?? 50,
+    author: input.author,
+    from: input.from,
+    to: input.to,
   })
 
   return requestJson(url, MessagesPageSchema)

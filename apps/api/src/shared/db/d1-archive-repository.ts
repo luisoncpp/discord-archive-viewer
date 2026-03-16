@@ -142,39 +142,53 @@ export class D1ArchiveRepository
   }
 
   async searchMessages(params: SearchMessagesParams): Promise<CursorPage<MessageDto>> {
-    const safeQuery = toFtsMatchQuery(params.q)
-    if (!safeQuery) {
-      return {
-        items: [],
-        nextCursor: null,
-        prevCursor: null,
-      }
-    }
+    const safeQuery = params.q ? toFtsMatchQuery(params.q) : ''
 
     const fetchLimit = params.limit + 1
 
-    const query = params.cursor
-      ? `
-        SELECT m.id, m.source_row_id, m.message_timestamp, m.author_id, m.author_name, m.content, m.attachments_raw, m.reactions_raw
-        FROM messages_fts f
-        JOIN messages m ON m.id = f.rowid
-        WHERE f.content MATCH ? AND m.id < ?
-        ORDER BY m.id DESC
-        LIMIT ?
-      `
-      : `
-        SELECT m.id, m.source_row_id, m.message_timestamp, m.author_id, m.author_name, m.content, m.attachments_raw, m.reactions_raw
-        FROM messages_fts f
-        JOIN messages m ON m.id = f.rowid
-        WHERE f.content MATCH ?
-        ORDER BY m.id DESC
-        LIMIT ?
-      `
+    const conditions: string[] = []
+    const bindings: Array<string | number> = []
+
+    const fromClause = safeQuery
+      ? 'FROM messages_fts f JOIN messages m ON m.id = f.rowid'
+      : 'FROM messages m'
+
+    if (safeQuery) {
+      conditions.push('f.content MATCH ?')
+      bindings.push(safeQuery)
+    }
+
+    if (params.cursor) {
+      conditions.push('m.id < ?')
+      bindings.push(params.cursor)
+    }
+
+    if (params.author) {
+      conditions.push('(m.author_name LIKE ? OR m.author_id LIKE ?)')
+      const authorPattern = `%${params.author}%`
+      bindings.push(authorPattern, authorPattern)
+    }
+
+    if (params.fromDate) {
+      conditions.push('substr(m.message_timestamp, 1, 10) >= ?')
+      bindings.push(params.fromDate)
+    }
+
+    if (params.toDate) {
+      conditions.push('substr(m.message_timestamp, 1, 10) <= ?')
+      bindings.push(params.toDate)
+    }
+
+    const query = `
+      SELECT m.id, m.source_row_id, m.message_timestamp, m.author_id, m.author_name, m.content, m.attachments_raw, m.reactions_raw
+      ${fromClause}
+      ${conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''}
+      ORDER BY m.id DESC
+      LIMIT ?
+    `
 
     const statement = this.db.prepare(query)
-    const result = params.cursor
-      ? await statement.bind(safeQuery, params.cursor, fetchLimit).all<MessageRow>()
-      : await statement.bind(safeQuery, fetchLimit).all<MessageRow>()
+    const result = await statement.bind(...bindings, fetchLimit).all<MessageRow>()
 
     const rows = result.results ?? []
     const hasMore = rows.length > params.limit

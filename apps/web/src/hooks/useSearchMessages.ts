@@ -12,7 +12,16 @@ type SearchState = {
 export function useSearchMessages(input: SearchMessagesInput | null) {
   const query = input?.q
   const cursor = input?.cursor
+  const author = input?.author
+  const from = input?.from
+  const to = input?.to
   const limit = input?.limit ?? 50
+  const hasSearchCriteria = Boolean(
+    (query && query.trim().length >= 2) ||
+      (author && author.trim().length > 0) ||
+      from ||
+      to,
+  )
 
   const [state, setState] = useState<SearchState>({
     data: null,
@@ -26,7 +35,7 @@ export function useSearchMessages(input: SearchMessagesInput | null) {
     let isCancelled = false
 
     async function run() {
-      if (!query || query.trim().length < 2) {
+      if (!hasSearchCriteria) {
         setState({
           data: null,
           isLoading: false,
@@ -39,7 +48,7 @@ export function useSearchMessages(input: SearchMessagesInput | null) {
       setState((previous) => ({ ...previous, isLoading: true, error: null }))
 
       try {
-        const data = await searchMessages({ q: query, cursor, limit })
+        const data = await searchMessages({ q: query, cursor, limit, author, from, to })
         if (isCancelled) {
           return
         }
@@ -70,7 +79,7 @@ export function useSearchMessages(input: SearchMessagesInput | null) {
     return () => {
       isCancelled = true
     }
-  }, [query, cursor, limit, reloadNonce])
+  }, [query, cursor, author, from, to, limit, reloadNonce, hasSearchCriteria])
 
   return {
     ...state,

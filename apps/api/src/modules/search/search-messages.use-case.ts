@@ -1,9 +1,12 @@
 import type { CursorPage, MessageDto } from '../../shared/types/api'
 
 export type SearchMessagesParams = {
-  q: string
+  q?: string
   cursor?: number
   limit: number
+  author?: string
+  fromDate?: string
+  toDate?: string
 }
 
 export interface SearchMessagesRepository {
