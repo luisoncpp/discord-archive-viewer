@@ -113,3 +113,42 @@ Sin `state.data` en las deps, `loadMore` usaría el snapshot antiguo de `data` y
 Después de una transición con `resetWithData`, el estado de `useMessagesFeed` tiene datos del contexto pero **`feedCursor` y `feedDir` no han cambiado** — siguen siendo `''` y `'next'`. Si el usuario pulsa "Volver al inicio", el código hace `setFeedCursor('')` y `setFeedDir('next')` pero como ya valían eso, el `useEffect` de fetching en `useMessagesFeed` no se re-ejecuta (las deps no cambiaron).
 
 **Solución**: llamar `messagesFeed.refetch()` explícitamente, que incrementa `reloadNonce` y fuerza el re-fetch independientemente de si el cursor cambió.
+
+---
+
+## 7. Re-bind del listener: conflicto entre fix de top-edge y estabilidad de `focus`
+
+### El bug original (top-edge intermitente)
+
+Cuando el usuario arrastra la barra de scroll muy rápido hasta `scrollTop=0`, el navegador puede no emitir eventos adicionales. Si justo en ese momento hubo re-bind del listener, el auto-load superior no se dispara porque nadie vuelve a evaluar el borde.
+
+Se intentó corregir llamando `onTimelineScroll()` inmediatamente después de `addEventListener`.
+
+### Efecto secundario introducido
+
+Ese chequeo inmediato resolvió el drag rápido, pero también se ejecutaba en context mode (`focus` activo). Resultado: al abrir contexto, podía evaluarse borde superior/inferior en el primer bind y disparar transición `context -> feed`, moviendo la timeline y “perdiendo” el foco visual del mensaje.
+
+### Solución final (condicionada)
+
+El chequeo inmediato en re-bind se mantiene, pero con dos guardas:
+
+1. `wasScrolledRef.current === true`
+  - solo después de que haya ocurrido al menos un `scroll` real del usuario;
+  - evita ejecutar lógica de bordes en el primer montaje.
+
+2. `contextMessageId === null`
+  - el chequeo inmediato aplica únicamente en feed mode;
+  - en context mode se prioriza estabilidad del foco inicial.
+
+Además, para top-edge se añadió una tercera guarda contra duplicados:
+
+3. `!prependAnchorRef.current`
+  - mientras exista ancla pendiente de compensación, no se permite otro `loadPrevious`.
+
+### Invariante práctica
+
+Si se vuelve a tocar `bindTimelineScrollListener`:
+
+- no ejecutar chequeo inmediato de borde durante contexto con `focus`;
+- no depender únicamente de eventos de scroll para detectar top-edge post re-bind;
+- bloquear repetición de `loadPrevious` durante la ventana de compensación.

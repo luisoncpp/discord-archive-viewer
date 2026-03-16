@@ -119,7 +119,42 @@ Deep-link válido: `/?focus=<messageId>`.
 - ESLint puede reportar warning `react-hooks/incompatible-library` por `useVirtualizer`.
 - Es warning conocido; build y tests permanecen válidos.
 
-## 10) Minimal context pack for future LLM edits
+## 10) Zonas delicadas de timeline (regresiones históricas)
+
+### A) Drag rápido al top no dispara `loadPrevious`
+
+Síntoma:
+- Si el usuario arrastra la barra hasta arriba muy rápido, a veces no carga anteriores.
+
+Causa técnica:
+- El listener de `scroll` puede re-bindearse por cambios de identidad de callbacks.
+- Si el drag termina justo en el borde, puede no llegar otro evento `scroll`.
+
+Regla actual:
+- En `bindTimelineScrollListener`, tras re-bind se permite chequeo inmediato de borde **solo** si:
+   - ya hubo scroll real (`wasScrolledRef.current === true`), y
+   - estamos en feed mode (`contextMessageId === null`).
+
+### B) Pérdida de `focus` al abrir contexto
+
+Síntoma:
+- Al abrir `/?focus=<id>`, el timeline se movía y el mensaje objetivo dejaba de estar donde debía.
+
+Causa técnica:
+- El chequeo inmediato de borde en re-bind también corría en context mode y forzaba transición context→feed antes de interacción del usuario.
+
+Regla actual:
+- El chequeo inmediato de borde queda bloqueado en context mode para preservar estabilidad inicial del foco.
+
+### C) Doble `loadPrevious` por ventana entre `capturePrependAnchor` y `isLoadingPrevious`
+
+Síntoma:
+- Re-bind sucesivos podían disparar más de una carga de prev antes de que React reflejara loading.
+
+Regla actual:
+- `tryHandleTopEdgeScroll` exige también `!prependAnchorRef.current` (ancla pendiente = no disparar otra carga).
+
+## 11) Minimal context pack for future LLM edits
 
 Si un LLM necesita editar comportamiento de timeline, normalmente basta con leer solo:
 
