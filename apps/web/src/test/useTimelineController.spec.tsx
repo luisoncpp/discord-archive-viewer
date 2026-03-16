@@ -243,4 +243,127 @@ describe('useTimelineController', () => {
 
     expect(mockScrollToIndex).toHaveBeenCalledTimes(1)
   })
+
+  it('does not auto-exit context mode on re-bind edge check after focus scroll', async () => {
+    const page = buildPage([buildMessage(41), buildMessage(42)], { next: 'cursor-next', prev: 'cursor-prev' })
+    const { input, feed } = createInput({
+      contextMessageId: 42,
+      activeState: { data: page, isLoading: false },
+      activeItems: page.items,
+      highlightedMessageId: 42,
+    })
+
+    const { result, rerender } = renderHook((props: ControllerInput) => useTimelineController(props), {
+      initialProps: input,
+    })
+
+    const scroller = createScroller(300, 1200, 200)
+    act(() => {
+      result.current.scrollRef.current = scroller
+    })
+
+    rerender(input)
+
+    act(() => {
+      scroller.dispatchEvent(new Event('scroll'))
+    })
+
+    // Simulate later render while context mode is still active; immediate edge check must be skipped.
+    Object.defineProperty(scroller, 'scrollTop', { configurable: true, writable: true, value: 0 })
+    rerender(input)
+
+    await waitFor(() => {
+      expect(feed.resetWithData).not.toHaveBeenCalled()
+      expect(input.setContextMessageId).not.toHaveBeenCalledWith(null)
+    })
+  })
 })
+
+    describe('regression: loadPrevious not triggered when dragging scrollbar fast to top', () => {
+    it('calls loadPrevious on listener re-bind when scroller is already at top edge', async () => {
+        // Regression: after a fast drag to scrollTop=0 the browser fires no further scroll events.
+        // The fix calls onTimelineScroll() immediately after each re-bind, so the edge check
+        // fires even if the user stopped scrolling before the listener was attached.
+      const page = buildPage([buildMessage(1), buildMessage(2)], { next: 'next-1', prev: 'prev-1' })
+      const { input, feed } = createInput({
+        activeState: { data: page, isLoading: false },
+        activeItems: page.items,
+      })
+
+      const { result, rerender } = renderHook((props: ControllerInput) => useTimelineController(props), {
+        initialProps: input,
+      })
+
+          // Scroller starts away from the top so the initial bind and first scroll don't trigger a load.
+          const scroller = createScroller(300, 1200, 200)
+      act(() => {
+        result.current.scrollRef.current = scroller
+      })
+
+          // Attach listener (scrollTop=300, wasScrolledRef still false → no immediate call on bind).
+          rerender(input)
+
+          // Fire a real scroll event to set wasScrolledRef=true. scrollTop=300 is outside the edge
+          // threshold (>160) so no load is triggered here.
+          act(() => {
+            scroller.dispatchEvent(new Event('scroll'))
+          })
+
+          // Fast drag to top: update scrollTop to 0 without dispatching a scroll event —
+          // exactly the scenario that caused the bug.
+          Object.defineProperty(scroller, 'scrollTop', { configurable: true, writable: true, value: 0 })
+
+          // Re-bind (rowVirtualizer new identity from mock → onTimelineScroll recreates → effect re-runs).
+          // wasScrolledRef=true → immediate onTimelineScroll() fires → top edge detected → loadPrevious.
+          rerender(input)
+
+      await waitFor(() => {
+        expect(feed.loadPrevious).toHaveBeenCalled()
+      })
+    })
+
+    it('does not call loadPrevious a second time while prepend anchor is still pending', async () => {
+        // Regression guard: between the synchronous capturePrependAnchor() call and the async
+        // isLoadingPrevious React state update, another re-bind could fire a duplicate load.
+        // The !prependAnchorRef.current guard blocks it. rAF is mocked so the anchor is never
+        // cleared by the compensation effect during this test.
+      vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(0 as unknown as ReturnType<typeof requestAnimationFrame>)
+
+      const page = buildPage([buildMessage(1), buildMessage(2)], { next: 'next-1', prev: 'prev-1' })
+      const { input, feed } = createInput({
+        activeState: { data: page, isLoading: false },
+        activeItems: page.items,
+      })
+
+      const { result, rerender } = renderHook((props: ControllerInput) => useTimelineController(props), {
+        initialProps: input,
+      })
+
+          const scroller = createScroller(300, 1200, 200)
+      act(() => {
+        result.current.scrollRef.current = scroller
+      })
+
+          // Attach listener (no immediate call yet — wasScrolledRef=false on first bind).
+          rerender(input)
+
+          // Mark wasScrolledRef=true via a real scroll event. scrollTop=300 is outside the edge.
+          act(() => {
+            scroller.dispatchEvent(new Event('scroll'))
+          })
+
+          // Fast drag to top (no scroll event).
+          Object.defineProperty(scroller, 'scrollTop', { configurable: true, writable: true, value: 0 })
+
+          // First re-bind at top: immediate call fires, capturePrependAnchor sets the anchor, loadPrevious called.
+          rerender(input)
+          await waitFor(() => {
+        expect(feed.loadPrevious).toHaveBeenCalledTimes(1)
+      })
+
+      // Second re-bind: anchor is still set (rAF callback never ran), guard blocks second load.
+      rerender(input)
+
+      expect(feed.loadPrevious).toHaveBeenCalledTimes(1)
+    })
+  })

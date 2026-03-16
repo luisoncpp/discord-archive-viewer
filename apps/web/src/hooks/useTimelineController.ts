@@ -60,6 +60,7 @@ export function useTimelineController({
 }: UseTimelineControllerInput) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const scrollTopRef = useRef(0)
+  const wasScrolledRef = useRef(false)
   const prependAnchorRef = useRef<{ scrollTop: number; totalSize: number } | null>(null)
   const autoLoadNextCursorRef = useRef<string | null>(null)
   const lastScrolledFocusIdRef = useRef<number | null>(null)
@@ -107,11 +108,11 @@ export function useTimelineController({
 
       if (
         !(
-          scrollDirection < 0 &&
+          scrollDirection <= 0 &&
           currentScrollTop <= AUTO_LOAD_EDGE_THRESHOLD &&
           data.prevCursor &&
           !isLoading &&
-          (contextMessageId !== null || !messagesFeed.isLoadingPrevious)
+          (contextMessageId !== null || (!messagesFeed.isLoadingPrevious && !prependAnchorRef.current))
         )
       ) {
         return false
@@ -166,6 +167,8 @@ export function useTimelineController({
     if (!element) {
       return
     }
+
+    wasScrolledRef.current = true
 
     const data = activeState.data
     if (!data) {
@@ -367,10 +370,16 @@ export function useTimelineController({
     scrollTopRef.current = scroller.scrollTop
     scroller.addEventListener('scroll', onTimelineScroll, { passive: true })
 
+    // On re-bind in feed mode (after at least one user scroll): check edge immediately
+    // in case no further scroll events fire (e.g. fast scrollbar drag that stops at top).
+    if (wasScrolledRef.current && contextMessageId === null) {
+      onTimelineScroll()
+    }
+
     return () => {
       scroller.removeEventListener('scroll', onTimelineScroll)
     }
-  }, [isSearchMode, onTimelineScroll])
+  }, [contextMessageId, isSearchMode, onTimelineScroll])
 
   useEffect(function resetBottomAutoLoadCursorOnCursorChange() {
     autoLoadNextCursorRef.current = null
