@@ -1,0 +1,2 @@
+# Example local env vars for wrangler dev
+APP_NAME=discord-archive-api

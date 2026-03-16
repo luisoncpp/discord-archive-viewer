@@ -1,0 +1,22 @@
+{
+  "name": "@archive/api",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "wrangler deploy --dry-run",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "hono": "^4.10.6",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260313.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.7",
+    "wrangler": "^4.61.0"
+  }
+}
