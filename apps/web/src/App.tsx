@@ -8,8 +8,8 @@ import { useSearchMessages } from './hooks/useSearchMessages'
 import type { MessageDto } from './types/api'
 import './App.css'
 
-const FEED_PAGE_SIZE = 40
-const AUTO_LOAD_EDGE_THRESHOLD = 480
+const FEED_PAGE_SIZE = 20
+const AUTO_LOAD_EDGE_THRESHOLD = 160
 
 function parsePositiveInt(value: string | null): number | null {
   if (!value) {
@@ -68,6 +68,7 @@ function App() {
   const scrollTopRef = useRef(0)
   const prependAnchorRef = useRef<{ scrollTop: number; totalSize: number } | null>(null)
   const autoLoadNextCursorRef = useRef<string | null>(null)
+  const lastScrolledFocusIdRef = useRef<number | null>(null)
 
   const messagesFeed = useMessagesFeed({ limit: FEED_PAGE_SIZE, cursor: feedCursor || undefined, dir: feedDir })
   const messageContext = useMessageContext(contextMessageId, 15, 15)
@@ -175,9 +176,8 @@ function App() {
         (contextMessageId !== null || !messagesFeed.isLoadingPrevious)
       ) {
         if (contextMessageId !== null) {
+          messagesFeed.resetWithData(activeState.data!)
           setContextMessageId(null)
-          setFeedCursor(activeState.data.prevCursor)
-          setFeedDir('prev')
         } else {
           prependAnchorRef.current = {
             scrollTop: currentScrollTop,
@@ -197,9 +197,8 @@ function App() {
         (contextMessageId !== null || !messagesFeed.isLoadingNext)
       ) {
         if (contextMessageId !== null) {
+          messagesFeed.resetWithData(activeState.data!)
           setContextMessageId(null)
-          setFeedCursor(activeState.data.nextCursor)
-          setFeedDir('next')
         } else {
           autoLoadNextCursorRef.current = activeState.data.nextCursor
           void messagesFeed.loadNext().then((loaded) => {
@@ -250,9 +249,8 @@ function App() {
     }
 
     if (contextMessageId !== null) {
+      messagesFeed.resetWithData(activeState.data!)
       setContextMessageId(null)
-      setFeedCursor(nextCursor)
-      setFeedDir('next')
       return
     }
 
@@ -268,7 +266,7 @@ function App() {
     })
   }, [
     activeItems.length,
-    activeState.data?.nextCursor,
+    activeState.data,
     activeState.isLoading,
     contextMessageId,
     isSearchMode,
@@ -276,12 +274,18 @@ function App() {
   ])
 
   useEffect(() => {
-    if (!highlightedMessageId || activeItems.length === 0) {
+    if (!highlightedMessageId) {
+      lastScrolledFocusIdRef.current = null
+      return
+    }
+
+    if (lastScrolledFocusIdRef.current === highlightedMessageId || activeItems.length === 0) {
       return
     }
 
     const highlightedIndex = activeItems.findIndex((message) => message.id === highlightedMessageId)
     if (highlightedIndex >= 0) {
+      lastScrolledFocusIdRef.current = highlightedMessageId
       rowVirtualizer.scrollToIndex(highlightedIndex, {
         align: 'center',
       })
@@ -289,6 +293,7 @@ function App() {
   }, [highlightedMessageId, activeItems, rowVirtualizer])
 
   function openMessageContext(messageId: number) {
+    lastScrolledFocusIdRef.current = null
     setContextMessageId(messageId)
     setHighlightedMessageId(messageId)
     setQuery('')
@@ -571,6 +576,7 @@ function App() {
                     setHighlightedMessageId(null)
                     setFeedCursor('')
                     setFeedDir('next')
+                    messagesFeed.refetch()
                   }}
                 >
                   Volver al inicio del timeline

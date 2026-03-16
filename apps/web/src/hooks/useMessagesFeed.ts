@@ -29,7 +29,7 @@ function mergeItems(currentItems: MessageDto[], incomingItems: MessageDto[], pos
 }
 
 export function useMessagesFeed(input: ListMessagesInput = {}) {
-  const { cursor, dir = 'next', limit = 40 } = input
+  const { cursor, dir = 'next', limit = 20 } = input
   const [state, setState] = useState<MessagesFeedState>({
     data: null,
     isLoading: true,
@@ -89,6 +89,17 @@ export function useMessagesFeed(input: ListMessagesInput = {}) {
       isCancelled = true
     }
   }, [cursor, dir, limit, reloadNonce])
+
+  const resetWithData = useCallback((data: MessagesPageDto) => {
+    setState({
+      data,
+      isLoading: false,
+      isLoadingNext: false,
+      isLoadingPrevious: false,
+      error: null,
+      isEmpty: data.items.length === 0,
+    })
+  }, [])
 
   const loadMore = useCallback(
     async (direction: 'next' | 'prev') => {
@@ -162,5 +173,6 @@ export function useMessagesFeed(input: ListMessagesInput = {}) {
     refetch: () => setReloadNonce((value) => value + 1),
     loadNext: () => loadMore('next'),
     loadPrevious: () => loadMore('prev'),
+    resetWithData,
   }
 }
