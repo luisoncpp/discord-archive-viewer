@@ -1,199 +1,132 @@
-# Web Documentation — Discord Archive Viewer
+# Web Documentation (LLM-Optimized)
 
-## 1) Resumen
-El frontend está construido con Vite + React + TypeScript y actualmente cubre Fase 4, 5 y 7:
-- contratos tipados de API,
-- cliente HTTP con validación de payload y manejo de errores tipados,
-- renderer estilo Discord (markdown seguro, embeds y reacciones),
-- búsqueda con debounce,
-- filtros por autor y rango de fechas,
-- sincronización de filtros y estado de foco en query params,
-- salto desde resultados de búsqueda a contexto del mensaje en timeline normal.
+Objetivo: describir la arquitectura del frontend con el menor contexto posible para cambios seguros.
 
-## 2) Cómo correr el frontend
+## 1) TL;DR (lectura en 30s)
 
-## 2.1 Requisitos
-- Node.js instalado
-- Dependencias instaladas en el monorepo
-- API disponible (`wrangler dev` local o endpoint remoto)
+- Stack: React 19 + TypeScript + Vite.
+- Shell principal: `src/App.tsx`.
+- Lógica crítica de timeline: `src/hooks/useTimelineController.ts`.
+- Render UI extraído: `src/features/app/SearchFilters.tsx` y `src/features/app/TimelineSection.tsx`.
+- Rendering de mensajes: `src/features/messages/MessageContent.tsx`.
+- Fuente de datos: `src/hooks/useMessagesFeed.ts`, `src/hooks/useMessageContext.ts`, `src/hooks/useSearchMessages.ts`.
+- Contratos/API: `src/services/apiClient.ts` + `src/types/api.ts` (Zod).
 
-## 2.2 Variables de entorno
-Archivo recomendado: `.env` o `.env.local` dentro de `apps/web`.
+## 2) Mapa de arquitectura
 
-Variable usada:
-- `VITE_API_URL` (ejemplo: `http://127.0.0.1:8787`)
+### Capa UI
 
-Si no existe, el cliente usa `window.location.origin` como fallback.
+- `App.tsx`: composición de estado, selección de modo (`search/context/feed`), wiring de componentes.
+- `SearchFilters.tsx`: inputs de búsqueda/filtros, sin estado interno.
+- `TimelineSection.tsx`: lista virtualizada + botones de navegación + loading indicators.
+- `MessageContent.tsx`: markdown seguro + embeds + reacciones.
 
-En desarrollo, `vite.config.ts` define proxy para `/api` hacia `http://127.0.0.1:8787`, por lo que `npm run dev:web` + `npm run dev:api` funciona sin configurar `VITE_API_URL`.
+### Capa comportamiento
 
-## 2.3 Comandos
-Desde raíz del repo:
+- `useTimelineController.ts`: scroll listener, auto-load en bordes, transición context→feed, foco one-shot.
+- `useDebouncedValue.ts`: debounce para query.
 
-```bash
-npm run dev:api
-npm run dev:api:remote
-npm run dev:web
-npm run lint -w apps/web
-npm run test -w apps/web
-npm run build -w apps/web
-```
+### Capa datos
 
-Notas:
-- `dev:api:remote` usa `wrangler dev --remote` y requiere subdominio `workers.dev` en Cloudflare.
-- Si no necesitas datos remotos en vivo, usa `npm run dev:api`.
+- `useMessagesFeed.ts`: timeline paginado por cursor (`next`/`prev`) con merge y dedupe.
+- `useMessageContext.ts`: ventana alrededor de `focus`.
+- `useSearchMessages.ts`: búsqueda por `q`, `author`, `from`, `to`.
+- `apiClient.ts`: requests + validación Zod + errores tipados.
 
-## 3) Estructura actual del frontend
+## 3) Modos de pantalla (source of truth)
 
-```text
-apps/web/src
-  App.tsx
-  features/messages/
-    MessageContent.tsx
-    embeds.ts
-    markdown.tsx
-    reactions.ts
-  hooks/
-    useDebouncedValue.ts
-    useMessageContext.ts
-    useMessagesFeed.ts
-    useSearchMessages.ts
-  services/
-    apiClient.ts
-  types/
-    api.ts
-  test/
-    app.spec.tsx
-    apiClient.spec.ts
-    messageContent.spec.tsx
-```
+- `isSearchMode = true` → usa `searchState`.
+- `isSearchMode = false && contextMessageId !== null` → usa `messageContext`.
+- `isSearchMode = false && contextMessageId === null` → usa `messagesFeed`.
 
-## 4) Responsabilidades por módulo
+El `activeState` siempre deriva de esas reglas. Cambios en auto-load deben respetar esta prioridad.
 
-## 4.1 `src/types/api.ts`
-- define contratos de datos del API y validadores Zod.
-- contiene `MessageSchema`, `MessagesPageSchema`, `AuthorsResponseSchema`, `ApiErrorSchema`.
+## 4) Invariantes críticas (no romper)
 
-## 4.2 `src/services/apiClient.ts`
-- encapsula llamadas HTTP al backend.
-- valida respuestas con Zod.
-- detecta respuestas no JSON y lanza `ApiClientError` (`non_json_response`).
+1. Context→Feed debe hidratar primero:
+   - usar `messagesFeed.resetWithData(contextPage)`
+   - luego `setContextMessageId(null)`.
+   - evita salto agresivo de scroll y pérdida del mensaje original.
 
-Funciones principales:
-- `listMessages(input)`
-- `getMessageContext(input)`
-- `searchMessages(input)`
-- `listAuthors(input)`
+2. `scrollToIndex` de foco es one-shot por `highlightedMessageId`:
+   - controlado con `lastScrolledFocusIdRef`.
+   - evita recentrado repetido tras auto-cargas.
 
-## 4.3 Hooks
-- `useMessagesFeed`: lista normal paginada por cursor y dirección.
-- `useSearchMessages`: búsqueda con estado (`loading/error/empty`) y soporte de filtros.
-- `useMessageContext`: obtiene contexto alrededor de un `messageId`.
-- `useDebouncedValue`: debounce reutilizable para input de búsqueda.
+3. Auto-load inferior deduplica por cursor:
+   - `autoLoadNextCursorRef` evita disparos duplicados para el mismo `nextCursor`.
 
-## 4.4 `src/features/messages/MessageContent.tsx`
-- render seguro de markdown tipo Discord:
-  - inline code, bold, italic, strike,
-  - code fences,
-  - quotes (`>`),
-  - links/autolinks.
-- embeds soportados:
-  - imagen directa,
-  - YouTube,
-  - Tenor.
-- reacciones desde `reactionsRaw` como pills (`emoji + count`).
+4. Prepend conserva viewport:
+   - antes de `loadPrevious`, guardar `{ scrollTop, totalSize }`.
+   - después del prepend, compensar delta de altura.
 
-## 4.5 `src/App.tsx`
-- vista principal estilo Discord.
-- búsqueda + filtros (`author`, `from`, `to`).
-- sincronización de estado con URL:
-  - `q`, `author`, `from`, `to`, `cursor`,
-  - `focus` para mensaje enfocado en contexto.
-- comportamiento clave:
-  - click en resultado de búsqueda => abre timeline normal centrado en ese mensaje,
-  - navegación `Mensajes anteriores/siguientes` también en lista normal,
-  - resaltado visual del mensaje enfocado.
+5. Reset de timeline debe forzar refetch:
+   - `messagesFeed.refetch()` en `resetTimeline`.
+   - evita quedarse en datos hidratados de contexto cuando `feedCursor` no cambió.
 
-## 5) Contratos consumidos del backend
+## 5) Endpoints consumidos por frontend
 
-## 5.1 `GET /api/messages`
-Query:
-- `cursor?`
-- `dir?` (`next|prev`)
-- `limit?` (máx 100)
+- `GET /api/messages` (`cursor`, `dir`, `limit`)
+- `GET /api/messages/context` (`id`, `before`, `after`)
+- `GET /api/search` (`q`, `author`, `from`, `to`, `cursor`, `limit`)
+- `GET /api/authors` (`query`, `limit`)
 
-Semántica usada por la UI:
-- `nextCursor`: avanza a mensajes más recientes dentro del flujo mostrado.
-- `prevCursor`: permite cargar mensajes anteriores dentro del flujo mostrado.
+Semántica relevante:
+- `nextCursor` = avanzar a mensajes más recientes del flujo actual.
+- `prevCursor` = cargar mensajes anteriores.
 
-## 5.2 `GET /api/messages/context`
-Query:
-- `id` (requerido)
-- `before?` (default 10, máx 50)
-- `after?` (default 10, máx 50)
+## 6) URL contract
 
-Uso:
-- devuelve una ventana centrada en el mensaje objetivo para mostrar contexto.
+La app sincroniza estado en query params:
 
-## 5.3 `GET /api/search`
-Query:
-- `q?` (si viene, mínimo 2 chars)
-- `author?`
-- `from?` (`YYYY-MM-DD`)
-- `to?` (`YYYY-MM-DD`)
-- `cursor?`
-- `limit?` (máx 50)
-
-Regla:
-- requiere al menos un criterio: `q` o filtros (`author/from/to`).
-
-## 5.4 `GET /api/authors`
-Query:
-- `query?`
-- `limit?` (máx 50)
-
-## 6) Estado URL y deep links
-La UI mantiene estado en query params para compartir vistas:
-- `q`, `author`, `from`, `to`: estado de búsqueda y filtros.
+- `q`, `author`, `from`, `to`: filtros de búsqueda.
 - `cursor`: paginación de búsqueda.
-- `focus`: id del mensaje enfocado en vista de contexto.
+- `focus`: mensaje objetivo para abrir contexto.
 
-Comportamiento de restauración:
-- Si abres una URL con `focus=<id>`, la app carga automáticamente el contexto de ese mensaje y lo resalta en el timeline.
+Deep-link válido: `/?focus=<messageId>`.
 
-Ejemplo:
-```text
-/?focus=996333
-```
+## 7) Testing map (qué protege cada suite)
 
-## 7) Estrategia de manejo de errores
-- Errores HTTP del backend se transforman en `ApiClientError`.
-- Si llega HTML/no-JSON, se lanza `code = non_json_response`.
-- Si el payload JSON no cumple contrato, Zod falla.
+- `src/test/useTimelineController.spec.tsx`
+  - acciones del controlador,
+  - auto-load por scroll,
+  - transición context→feed,
+  - foco one-shot.
 
-## 8) Testing actual
+- `src/test/app.spec.tsx`
+  - integración de `App` con hooks,
+  - flujos de búsqueda/contexto,
+  - regresiones clave de auto-load y reset timeline.
 
-## 8.1 `src/test/apiClient.spec.ts`
-- parseo de payload válido,
-- error tipado backend,
-- rechazo de payload inválido.
+- `src/test/messageContent.spec.tsx`
+  - markdown/embeds/reacciones sanitizados.
 
-## 8.2 `src/test/messageContent.spec.tsx`
-- markdown inline,
-- bloques de código,
-- quotes,
-- autolinks,
-- embeds (imagen, YouTube, Tenor),
-- parseo de reacciones,
-- sanitización (sin ejecutar HTML).
+- `src/test/apiClient.spec.ts`
+  - parseo de payload, errores tipados, payload inválido.
 
-## 8.3 `src/test/app.spec.tsx`
-- smoke test de render de la app.
+## 8) Flujo recomendado para cambios
 
-## 9) Troubleshooting rápido
-- Síntoma: `Unexpected token '<', "<!doctype ..." is not valid JSON`.
-- Causa típica: frontend recibió HTML en lugar de JSON (ruta API incorrecta o API no levantada).
-- Verificación mínima:
-  - correr `npm run dev:api` en una terminal,
-  - correr `npm run dev:web` en otra,
-  - abrir `http://localhost:5173/api/health` y confirmar JSON.
+1. Cambiar primero lógica en `useTimelineController.ts`.
+2. Ajustar wiring mínimo en `App.tsx`.
+3. Ejecutar pruebas focalizadas:
+   - `npm run test -- useTimelineController.spec.tsx`
+   - `npm run test -- app.spec.tsx`
+4. Ejecutar validación final:
+   - `npm run lint -w apps/web`
+   - `npm run build -w apps/web`
+
+## 9) Known caveats
+
+- ESLint puede reportar warning `react-hooks/incompatible-library` por `useVirtualizer`.
+- Es warning conocido; build y tests permanecen válidos.
+
+## 10) Minimal context pack for future LLM edits
+
+Si un LLM necesita editar comportamiento de timeline, normalmente basta con leer solo:
+
+1. `src/App.tsx`
+2. `src/hooks/useTimelineController.ts`
+3. `src/hooks/useMessagesFeed.ts`
+4. `src/test/useTimelineController.spec.tsx`
+5. `src/test/app.spec.tsx`
+
+Con esos 5 archivos suele ser suficiente para cambios sin romper invariantes.
