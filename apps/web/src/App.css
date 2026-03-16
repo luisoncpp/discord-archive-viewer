@@ -153,6 +153,10 @@
   padding: 8px 16px;
 }
 
+.discord-message-row-compact {
+  padding-top: 2px;
+}
+
 .discord-message-row:hover {
   background: #2e3035;
 }
@@ -183,8 +187,17 @@
   user-select: none;
 }
 
+.discord-avatar-spacer {
+  width: 40px;
+  height: 20px;
+}
+
 .discord-message-body {
   min-width: 0;
+}
+
+.discord-message-body-compact {
+  padding-top: 1px;
 }
 
 .discord-message-header {
@@ -203,6 +216,20 @@
 .discord-timestamp {
   color: #949ba4;
   font-size: 12px;
+}
+
+.discord-timestamp-link {
+  color: #949ba4;
+  text-decoration: none;
+}
+
+.discord-timestamp-link:visited {
+  color: #949ba4;
+}
+
+.discord-timestamp-link:hover {
+  color: #949ba4;
+  text-decoration: underline;
 }
 
 .message-content {

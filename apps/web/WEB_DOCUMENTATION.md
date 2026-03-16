@@ -122,6 +122,10 @@ Query:
 - `dir?` (`next|prev`)
 - `limit?` (máx 100)
 
+Semántica usada por la UI:
+- `nextCursor`: avanza a mensajes más recientes dentro del flujo mostrado.
+- `prevCursor`: permite cargar mensajes anteriores dentro del flujo mostrado.
+
 ## 5.2 `GET /api/messages/context`
 Query:
 - `id` (requerido)

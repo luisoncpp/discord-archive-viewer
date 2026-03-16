@@ -101,6 +101,20 @@ describe('MessageContent', () => {
     expect(screen.getByRole('link', { name: /Abrir GIF original/i })).toBeInTheDocument()
   })
 
+  it('renders tenor short gif url as embed', () => {
+    render(
+      <MessageContent
+        content={'https://tenor.com/n5W7.gif'}
+        attachmentsRaw={null}
+        reactionsRaw={null}
+      />,
+    )
+
+    const iframe = screen.getByTitle('Tenor GIF n5W7')
+    expect(iframe).toHaveAttribute('src', 'https://tenor.com/embed/n5W7')
+    expect(screen.getByRole('link', { name: /Abrir GIF original/i })).toBeInTheDocument()
+  })
+
   it('does not render embed when no eligible url exists', () => {
     render(<MessageContent content={'solo texto'} attachmentsRaw={null} reactionsRaw={null} />)
     expect(screen.queryByTestId('message-embed')).not.toBeInTheDocument()

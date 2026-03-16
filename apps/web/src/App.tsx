@@ -4,6 +4,7 @@ import { useDebouncedValue } from './hooks/useDebouncedValue'
 import { useMessageContext } from './hooks/useMessageContext'
 import { useMessagesFeed } from './hooks/useMessagesFeed'
 import { useSearchMessages } from './hooks/useSearchMessages'
+import type { MessageDto } from './types/api'
 import './App.css'
 
 function parsePositiveInt(value: string | null): number | null {
@@ -17,6 +18,31 @@ function parsePositiveInt(value: string | null): number | null {
   }
 
   return parsed
+}
+
+function shouldCompactWithPrevious(messages: MessageDto[], index: number): boolean {
+  if (index <= 0) {
+    return false
+  }
+
+  const current = messages[index]
+  const previous = messages[index - 1]
+  if (!current || !previous) {
+    return false
+  }
+
+  if (current.authorId !== previous.authorId) {
+    return false
+  }
+
+  const currentTime = new Date(current.messageTimestamp).getTime()
+  const previousTime = new Date(previous.messageTimestamp).getTime()
+  if (Number.isNaN(currentTime) || Number.isNaN(previousTime)) {
+    return false
+  }
+
+  const diffMs = Math.abs(currentTime - previousTime)
+  return diffMs <= 5 * 60 * 1000
 }
 
 function App() {
@@ -220,6 +246,11 @@ function App() {
 
         {activeState.data && activeState.data.items.length > 0 && (
           <section className="discord-messages" aria-label="Mensajes">
+            {(() => {
+              const items = activeState.data.items
+
+              return (
+                <>
             {!isSearchMode && (
               <div className="discord-pagination discord-pagination-top">
                 <button
@@ -241,42 +272,62 @@ function App() {
               </div>
             )}
 
-            {activeState.data.items.map((message) => (
-              <article
-                key={message.id}
-                className={`discord-message-row${highlightedMessageId === message.id ? ' discord-message-row-highlighted' : ''}`}
-                onClick={isSearchMode ? () => openMessageContext(message.id) : undefined}
-                role={isSearchMode ? 'button' : undefined}
-                tabIndex={isSearchMode ? 0 : undefined}
-                onKeyDown={
-                  isSearchMode
-                    ? (event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault()
-                          openMessageContext(message.id)
+            {items.map((message, index) => {
+              const isCompact = shouldCompactWithPrevious(items, index)
+
+              return (
+                <article
+                  key={message.id}
+                  className={`discord-message-row${isCompact ? ' discord-message-row-compact' : ''}${highlightedMessageId === message.id ? ' discord-message-row-highlighted' : ''}`}
+                  onClick={isSearchMode ? () => openMessageContext(message.id) : undefined}
+                  role={isSearchMode ? 'button' : undefined}
+                  tabIndex={isSearchMode ? 0 : undefined}
+                  onKeyDown={
+                    isSearchMode
+                      ? (event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            openMessageContext(message.id)
+                          }
                         }
-                      }
-                    : undefined
-                }
-              >
-                <div className="discord-avatar" aria-hidden="true">
-                  {message.authorName.slice(0, 1).toUpperCase()}
-                </div>
+                      : undefined
+                  }
+                >
+                  {!isCompact ? (
+                    <div className="discord-avatar" aria-hidden="true">
+                      {message.authorName.slice(0, 1).toUpperCase()}
+                    </div>
+                  ) : (
+                    <div className="discord-avatar-spacer" aria-hidden="true" />
+                  )}
 
-                <div className="discord-message-body">
-                  <header className="discord-message-header">
-                    <strong className="discord-author">{message.authorName}</strong>
-                    <span className="discord-timestamp">{formatTimestamp(message.messageTimestamp)}</span>
-                  </header>
+                  <div className={`discord-message-body${isCompact ? ' discord-message-body-compact' : ''}`}>
+                    {!isCompact && (
+                      <header className="discord-message-header">
+                        <strong className="discord-author">{message.authorName}</strong>
+                        <a
+                          className="discord-timestamp discord-timestamp-link"
+                          href={`${window.location.pathname}?focus=${message.id}`}
+                          onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            openMessageContext(message.id)
+                          }}
+                        >
+                          {formatTimestamp(message.messageTimestamp)}
+                        </a>
+                      </header>
+                    )}
 
-                  <MessageContent
-                    content={message.content}
-                    attachmentsRaw={message.attachmentsRaw}
-                    reactionsRaw={message.reactionsRaw}
-                  />
-                </div>
-              </article>
-            ))}
+                    <MessageContent
+                      content={message.content}
+                      attachmentsRaw={message.attachmentsRaw}
+                      reactionsRaw={message.reactionsRaw}
+                    />
+                  </div>
+                </article>
+              )
+            })}
 
             <div className="discord-pagination">
               {!isSearchMode && (
@@ -321,6 +372,9 @@ function App() {
                 <p className="discord-search-hint">Haz click en un resultado para verlo en contexto dentro del timeline.</p>
               </div>
             )}
+                </>
+              )
+            })()}
           </section>
         )}
       </section>

@@ -73,8 +73,17 @@ function extractTenorGifId(url: string): string | null {
       return null
     }
 
-    const match = parsed.pathname.match(/-gif-(\d+)(?:$|\/)/)
-    return match?.[1] ?? null
+    const longMatch = parsed.pathname.match(/-gif-(\d+)(?:$|\/)/)
+    if (longMatch?.[1]) {
+      return longMatch[1]
+    }
+
+    const shortMatch = parsed.pathname.match(/^\/([A-Za-z0-9]+)\.gif$/)
+    if (shortMatch?.[1]) {
+      return shortMatch[1]
+    }
+
+    return null
   } catch {
     return null
   }
@@ -125,6 +134,16 @@ export function findFirstEligibleEmbed(input: EmbedInput): MessageEmbed | null {
   })
 
   for (const url of candidates) {
+    const gifId = extractTenorGifId(url)
+    if (gifId) {
+      return {
+        type: 'tenor',
+        url,
+        gifId,
+        embedUrl: `https://tenor.com/embed/${gifId}`,
+      }
+    }
+
     if (isImageUrl(url)) {
       return {
         type: 'image',
@@ -139,16 +158,6 @@ export function findFirstEligibleEmbed(input: EmbedInput): MessageEmbed | null {
         url,
         videoId,
         embedUrl: `https://www.youtube.com/embed/${videoId}`,
-      }
-    }
-
-    const gifId = extractTenorGifId(url)
-    if (gifId) {
-      return {
-        type: 'tenor',
-        url,
-        gifId,
-        embedUrl: `https://tenor.com/embed/${gifId}`,
       }
     }
   }
