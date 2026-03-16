@@ -148,6 +148,20 @@ describe('App', () => {
     })
   })
 
+  it('toggles search controls visibility', () => {
+    render(<App />)
+
+    expect(screen.getByLabelText(/Buscar mensajes/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Ocultar búsqueda/i }))
+
+    expect(screen.queryByLabelText(/Buscar mensajes/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Mostrar búsqueda/i }))
+
+    expect(screen.getByLabelText(/Buscar mensajes/i)).toBeInTheDocument()
+  })
+
   it('opens focused context when clicking a search result', async () => {
     window.history.replaceState({}, '', '/?q=touhou')
     const focusedMessage = buildMessage(42, 'SearchUser')
@@ -164,7 +178,7 @@ describe('App', () => {
 
     render(<App />)
 
-    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(screen.getByRole('button', { name: /SearchUser/i }))
 
     await waitFor(() => {
       expect(mockUseMessageContext).toHaveBeenCalledWith(42, 15, 15)
