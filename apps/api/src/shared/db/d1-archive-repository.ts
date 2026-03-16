@@ -29,6 +29,14 @@ type AuthorRow = {
   message_count: number
 }
 
+export function toFtsMatchQuery(input: string): string {
+  return input
+    .normalize('NFKC')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function toMessageDto(row: MessageRow): MessageDto {
   return {
     id: row.id,
@@ -134,6 +142,15 @@ export class D1ArchiveRepository
   }
 
   async searchMessages(params: SearchMessagesParams): Promise<CursorPage<MessageDto>> {
+    const safeQuery = toFtsMatchQuery(params.q)
+    if (!safeQuery) {
+      return {
+        items: [],
+        nextCursor: null,
+        prevCursor: null,
+      }
+    }
+
     const fetchLimit = params.limit + 1
 
     const query = params.cursor
@@ -156,8 +173,8 @@ export class D1ArchiveRepository
 
     const statement = this.db.prepare(query)
     const result = params.cursor
-      ? await statement.bind(params.q, params.cursor, fetchLimit).all<MessageRow>()
-      : await statement.bind(params.q, fetchLimit).all<MessageRow>()
+      ? await statement.bind(safeQuery, params.cursor, fetchLimit).all<MessageRow>()
+      : await statement.bind(safeQuery, fetchLimit).all<MessageRow>()
 
     const rows = result.results ?? []
     const hasMore = rows.length > params.limit

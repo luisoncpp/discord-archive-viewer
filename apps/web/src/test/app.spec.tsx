@@ -7,7 +7,7 @@ afterEach(() => {
 })
 
 describe('App', () => {
-  it('renders integration heading', () => {
+  it('renders discord viewer heading', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -15,11 +15,16 @@ describe('App', () => {
           nextCursor: null,
           prevCursor: null,
         }),
-        { status: 200 },
+        {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+          },
+        },
       ),
     )
 
     render(<App />)
-    expect(screen.getByText(/Discord Archive Viewer API Integration/i)).toBeInTheDocument()
+    expect(screen.getByText(/Discord Archive Viewer/i)).toBeInTheDocument()
   })
 })

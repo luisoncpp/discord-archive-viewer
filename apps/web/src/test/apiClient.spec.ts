@@ -25,7 +25,12 @@ describe('apiClient', () => {
           nextCursor: '2',
           prevCursor: '1',
         }),
-        { status: 200 },
+        {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+          },
+        },
       ),
     )
 
@@ -40,7 +45,12 @@ describe('apiClient', () => {
           code: 'validation_error',
           message: 'Invalid query',
         }),
-        { status: 400 },
+        {
+          status: 400,
+          headers: {
+            'content-type': 'application/json',
+          },
+        },
       ),
     )
 
@@ -68,7 +78,12 @@ describe('apiClient', () => {
           nextCursor: null,
           prevCursor: null,
         }),
-        { status: 200 },
+        {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+          },
+        },
       ),
     )
 

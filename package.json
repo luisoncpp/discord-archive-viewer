@@ -10,6 +10,7 @@
   "scripts": {
     "dev:web": "npm run dev -w apps/web",
     "dev:api": "npm run dev -w apps/api",
+    "dev:api:remote": "npm run dev:remote -w apps/api",
     "dev:importer": "npm run dev -w tools/importer",
     "import:sample": "npm run import:sample -w tools/importer",
     "db:migrate:local": "npm run db:migrate:local -w apps/api",

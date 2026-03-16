@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { MessageContent } from './features/messages/MessageContent'
 import { useMessagesFeed } from './hooks/useMessagesFeed'
 import { useSearchMessages } from './hooks/useSearchMessages'
 import './App.css'
@@ -10,45 +11,72 @@ function App() {
 
   const activeState = query.trim().length >= 2 ? searchState : messagesFeed
 
+  function formatTimestamp(value: string): string {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) {
+      return value
+    }
+
+    return date.toLocaleString('es-MX', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    })
+  }
+
   return (
-    <main style={{ padding: 24, maxWidth: 900, margin: '0 auto', fontFamily: 'system-ui, sans-serif' }}>
-      <h1>Discord Archive Viewer API Integration</h1>
-      <p>Fase 4: contratos tipados + cliente HTTP + estados de carga/error/vacío.</p>
+    <main className="discord-page">
+      <section className="discord-panel">
+        <header className="discord-toolbar">
+          <h1 className="discord-title">Discord Archive Viewer</h1>
+          <p className="discord-subtitle">Búsqueda en historial con render estilo Discord</p>
+        </header>
 
-      <label htmlFor="search-input" style={{ display: 'block', marginBottom: 8 }}>
-        Buscar mensajes (mínimo 2 caracteres)
-      </label>
-      <input
-        id="search-input"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="Ej. hola"
-        style={{ width: '100%', maxWidth: 420, padding: 8, marginBottom: 16 }}
-      />
+        <div className="discord-search-block">
+          <label htmlFor="search-input" className="discord-search-label">
+            Buscar mensajes (mínimo 2 caracteres)
+          </label>
+          <input
+            id="search-input"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Ej. ya me bañe"
+            className="discord-search-input"
+          />
+        </div>
 
-      {activeState.isLoading && <p data-testid="loading-state">Cargando...</p>}
-      {activeState.error && <p data-testid="error-state">Error: {activeState.error}</p>}
-      {!activeState.isLoading && activeState.isEmpty && !activeState.error && (
-        <p data-testid="empty-state">Sin resultados.</p>
-      )}
+        {activeState.isLoading && <p data-testid="loading-state" className="discord-state">Cargando...</p>}
+        {activeState.error && <p data-testid="error-state" className="discord-state error">Error: {activeState.error}</p>}
+        {!activeState.isLoading && activeState.isEmpty && !activeState.error && (
+          <p data-testid="empty-state" className="discord-state">
+            Sin resultados.
+          </p>
+        )}
 
-      {activeState.data && activeState.data.items.length > 0 && (
-        <section>
-          <h2>Datos en bruto ({activeState.data.items.length})</h2>
-          <pre
-            style={{
-              maxHeight: 360,
-              overflow: 'auto',
-              background: '#111',
-              color: '#d4d4d4',
-              padding: 12,
-              borderRadius: 6,
-            }}
-          >
-            {JSON.stringify(activeState.data.items.slice(0, 5), null, 2)}
-          </pre>
-        </section>
-      )}
+        {activeState.data && activeState.data.items.length > 0 && (
+          <section className="discord-messages" aria-label="Mensajes">
+            {activeState.data.items.map((message) => (
+              <article key={message.id} className="discord-message-row">
+                <div className="discord-avatar" aria-hidden="true">
+                  {message.authorName.slice(0, 1).toUpperCase()}
+                </div>
+
+                <div className="discord-message-body">
+                  <header className="discord-message-header">
+                    <strong className="discord-author">{message.authorName}</strong>
+                    <span className="discord-timestamp">{formatTimestamp(message.messageTimestamp)}</span>
+                  </header>
+
+                  <MessageContent
+                    content={message.content}
+                    attachmentsRaw={message.attachmentsRaw}
+                    reactionsRaw={message.reactionsRaw}
+                  />
+                </div>
+              </article>
+            ))}
+          </section>
+        )}
+      </section>
     </main>
   )
 }
