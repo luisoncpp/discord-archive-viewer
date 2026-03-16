@@ -61,7 +61,13 @@ export function useTimelineController({
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const scrollTopRef = useRef(0)
   const wasScrolledRef = useRef(false)
-  const prependAnchorRef = useRef<{ scrollTop: number; totalSize: number } | null>(null)
+  const topEdgeArmedRef = useRef(true)
+  const prependAnchorRef = useRef<{
+    scrollTop: number
+    totalSize: number
+    messageId: number | null
+    offsetTop: number | null
+  } | null>(null)
   const autoLoadNextCursorRef = useRef<string | null>(null)
   const lastScrolledFocusIdRef = useRef<number | null>(null)
 
@@ -75,9 +81,17 @@ export function useTimelineController({
 
   const capturePrependAnchor = useCallback(
     (scrollTop: number) => {
+      const scroller = scrollRef.current
+      const scrollerTop = scroller?.getBoundingClientRect().top ?? 0
+      const anchorElement = Array.from(
+        scroller?.querySelectorAll<HTMLElement>('[data-message-id]') ?? [],
+      ).find((element) => element.getBoundingClientRect().bottom > scrollerTop) ?? null
+
       prependAnchorRef.current = {
         scrollTop,
         totalSize: rowVirtualizer.getTotalSize(),
+        messageId: anchorElement ? Number(anchorElement.dataset.messageId) : null,
+        offsetTop: anchorElement ? anchorElement.getBoundingClientRect().top - scrollerTop : null,
       }
     },
     [rowVirtualizer],
@@ -108,6 +122,7 @@ export function useTimelineController({
 
       if (
         !(
+          topEdgeArmedRef.current &&
           scrollDirection <= 0 &&
           currentScrollTop <= AUTO_LOAD_EDGE_THRESHOLD &&
           data.prevCursor &&
@@ -121,6 +136,7 @@ export function useTimelineController({
       if (contextMessageId !== null) {
         hydrateFeedAndExitContext(data)
       } else {
+        topEdgeArmedRef.current = false
         capturePrependAnchor(currentScrollTop)
         void messagesFeed.loadPrevious()
       }
@@ -178,6 +194,11 @@ export function useTimelineController({
     const currentScrollTop = element.scrollTop
     const scrollDirection = currentScrollTop - scrollTopRef.current
     scrollTopRef.current = currentScrollTop
+
+    if (currentScrollTop > AUTO_LOAD_EDGE_THRESHOLD) {
+      topEdgeArmedRef.current = true
+    }
+
     const distanceFromBottom = element.scrollHeight - currentScrollTop - element.clientHeight
 
     const didHandleTopEdge = tryHandleTopEdgeScroll({
@@ -307,8 +328,19 @@ export function useTimelineController({
     }
 
     const frameId = window.requestAnimationFrame(() => {
-      const nextTotalSize = rowVirtualizer.getTotalSize()
-      scroller.scrollTop = anchor.scrollTop + Math.max(0, nextTotalSize - anchor.totalSize)
+      const scrollerTop = scroller.getBoundingClientRect().top
+      const anchoredElement = anchor.messageId !== null
+        ? scroller.querySelector<HTMLElement>(`[data-message-id="${anchor.messageId}"]`)
+        : null
+
+      if (anchoredElement && anchor.offsetTop !== null) {
+        const nextOffsetTop = anchoredElement.getBoundingClientRect().top - scrollerTop
+        scroller.scrollTop += nextOffsetTop - anchor.offsetTop
+      } else {
+        const nextTotalSize = rowVirtualizer.getTotalSize()
+        scroller.scrollTop = anchor.scrollTop + Math.max(0, nextTotalSize - anchor.totalSize)
+      }
+
       prependAnchorRef.current = null
     })
 

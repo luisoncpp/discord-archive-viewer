@@ -199,6 +199,72 @@ describe('useTimelineController', () => {
     expect(feed.loadNext).not.toHaveBeenCalled()
   })
 
+  it('loads only one previous batch until the user leaves the top threshold', async () => {
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+      callback(0)
+      return 0
+    })
+
+    const { input, feed } = createInput({ contextMessageId: null })
+    const { result, rerender } = renderHook((props: ControllerInput) => useTimelineController(props), {
+      initialProps: input,
+    })
+
+    const scroller = createScroller(300, 1200, 200)
+    act(() => {
+      result.current.scrollRef.current = scroller
+    })
+
+    rerender(input)
+
+    act(() => {
+      scroller.dispatchEvent(new Event('scroll'))
+    })
+
+    Object.defineProperty(scroller, 'scrollTop', { configurable: true, writable: true, value: 0 })
+    act(() => {
+      scroller.dispatchEvent(new Event('scroll'))
+    })
+
+    await waitFor(() => {
+      expect(feed.loadPrevious).toHaveBeenCalledTimes(1)
+    })
+
+    // Still at top: another scroll event must not trigger another batch.
+    act(() => {
+      scroller.dispatchEvent(new Event('scroll'))
+    })
+
+    expect(feed.loadPrevious).toHaveBeenCalledTimes(1)
+
+    // Simulate the prepend render finishing, which runs compensation and clears the pending anchor.
+    const nextInput: ControllerInput = {
+      ...input,
+      activeItems: [buildMessage(0), ...input.activeItems],
+      activeState: {
+        data: buildPage([buildMessage(0), ...input.activeItems], { next: 'next-1', prev: 'prev-2' }),
+        isLoading: false,
+      },
+    }
+
+    rerender(nextInput)
+
+    // Leave the threshold, then come back to top: a new batch becomes eligible.
+    Object.defineProperty(scroller, 'scrollTop', { configurable: true, writable: true, value: 300 })
+    act(() => {
+      scroller.dispatchEvent(new Event('scroll'))
+    })
+
+    Object.defineProperty(scroller, 'scrollTop', { configurable: true, writable: true, value: 0 })
+    act(() => {
+      scroller.dispatchEvent(new Event('scroll'))
+    })
+
+    await waitFor(() => {
+      expect(feed.loadPrevious).toHaveBeenCalledTimes(2)
+    })
+  })
+
   it('hydrates feed from context on bottom scroll before leaving context mode', async () => {
     const page = buildPage([buildMessage(41), buildMessage(42)], { next: 'cursor-next', prev: 'cursor-prev' })
     const { input, feed } = createInput({
@@ -292,6 +358,77 @@ describe('useTimelineController', () => {
       expect(feed.resetWithData).not.toHaveBeenCalled()
       expect(input.setContextMessageId).not.toHaveBeenCalledWith(null)
     })
+  })
+
+  it('keeps the anchored top message in place after prepending previous messages', () => {
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+      callback(0)
+      return 0
+    })
+
+    const { input } = createInput({ contextMessageId: null })
+    const { result, rerender } = renderHook((props: ControllerInput) => useTimelineController(props), {
+      initialProps: input,
+    })
+
+    const scroller = createScroller(300, 1200, 200)
+    const anchorElement = document.createElement('article')
+    anchorElement.dataset.messageId = '2'
+    anchorElement.getBoundingClientRect = () => ({
+      x: 0,
+      y: 140,
+      width: 0,
+      height: 40,
+      top: 140,
+      right: 0,
+      bottom: 180,
+      left: 0,
+      toJSON: () => ({}),
+    })
+
+    scroller.getBoundingClientRect = () => ({
+      x: 0,
+      y: 100,
+      width: 0,
+      height: 200,
+      top: 100,
+      right: 0,
+      bottom: 300,
+      left: 0,
+      toJSON: () => ({}),
+    })
+
+    scroller.appendChild(anchorElement)
+
+    act(() => {
+      result.current.scrollRef.current = scroller
+      result.current.openPreviousMessages()
+    })
+
+    const nextInput: ControllerInput = {
+      ...input,
+      activeItems: [buildMessage(0), ...input.activeItems],
+      messagesFeed: {
+        ...input.messagesFeed,
+        isLoadingPrevious: false,
+      },
+    }
+
+    anchorElement.getBoundingClientRect = () => ({
+      x: 0,
+      y: 260,
+      width: 0,
+      height: 40,
+      top: 260,
+      right: 0,
+      bottom: 300,
+      left: 0,
+      toJSON: () => ({}),
+    })
+
+    rerender(nextInput)
+
+    expect(scroller.scrollTop).toBe(420)
   })
 })
 
