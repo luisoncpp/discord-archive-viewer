@@ -1,15 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
+import { useEffect, useMemo, useState } from 'react'
 import { SearchFilters } from './features/app/SearchFilters'
 import { TimelineSection } from './features/app/TimelineSection'
 import { useDebouncedValue } from './hooks/useDebouncedValue'
 import { useMessageContext } from './hooks/useMessageContext'
 import { useMessagesFeed } from './hooks/useMessagesFeed'
 import { useSearchMessages } from './hooks/useSearchMessages'
+import { useTimelineController } from './hooks/useTimelineController'
 import './App.css'
 
 const FEED_PAGE_SIZE = 20
-const AUTO_LOAD_EDGE_THRESHOLD = 160
 
 function parsePositiveInt(value: string | null): number | null {
   if (!value) {
@@ -39,12 +38,6 @@ function App() {
 
   const debouncedQuery = useDebouncedValue(query, 300)
 
-  const scrollRef = useRef<HTMLDivElement | null>(null)
-  const scrollTopRef = useRef(0)
-  const prependAnchorRef = useRef<{ scrollTop: number; totalSize: number } | null>(null)
-  const autoLoadNextCursorRef = useRef<string | null>(null)
-  const lastScrolledFocusIdRef = useRef<number | null>(null)
-
   const messagesFeed = useMessagesFeed({ limit: FEED_PAGE_SIZE, cursor: feedCursor || undefined, dir: feedDir })
   const messageContext = useMessageContext(contextMessageId, 15, 15)
   const searchState = useSearchMessages(
@@ -63,14 +56,6 @@ function App() {
   const isSearchMode = Boolean(debouncedQuery.trim().length >= 2 || authorFilter || fromDate || toDate)
   const activeState = isSearchMode ? searchState : contextMessageId ? messageContext : messagesFeed
   const activeItems = useMemo(() => activeState.data?.items ?? [], [activeState.data?.items])
-
-  const rowVirtualizer = useVirtualizer({
-    count: activeItems.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => 92,
-    overscan: 10,
-    getItemKey: (index) => activeItems[index]?.id ?? index,
-  })
 
   useEffect(() => {
     const params = new URLSearchParams()
@@ -103,231 +88,33 @@ function App() {
     setSearchCursor('')
   }, [debouncedQuery, authorFilter, fromDate, toDate])
 
-  useEffect(() => {
-    const anchor = prependAnchorRef.current
-    if (!anchor || messagesFeed.isLoadingPrevious) {
-      return
-    }
 
-    const scroller = scrollRef.current
-    if (!scroller) {
-      prependAnchorRef.current = null
-      return
-    }
-
-    const frameId = window.requestAnimationFrame(() => {
-      const nextTotalSize = rowVirtualizer.getTotalSize()
-      scroller.scrollTop = anchor.scrollTop + Math.max(0, nextTotalSize - anchor.totalSize)
-      prependAnchorRef.current = null
-    })
-
-    return () => window.cancelAnimationFrame(frameId)
-  }, [activeItems.length, messagesFeed.isLoadingPrevious, rowVirtualizer])
-
-  useEffect(() => {
-    const scroller = scrollRef.current
-    if (!scroller || isSearchMode) {
-      return
-    }
-
-    function handleScroll() {
-      const element = scrollRef.current
-      if (!element) {
-        return
-      }
-
-      const currentScrollTop = element.scrollTop
-      const scrollDirection = currentScrollTop - scrollTopRef.current
-      scrollTopRef.current = currentScrollTop
-
-      const edgeThreshold = AUTO_LOAD_EDGE_THRESHOLD
-      const distanceFromBottom = element.scrollHeight - currentScrollTop - element.clientHeight
-
-      if (
-        scrollDirection < 0 &&
-        currentScrollTop <= edgeThreshold &&
-        activeState.data?.prevCursor &&
-        !activeState.isLoading &&
-        (contextMessageId !== null || !messagesFeed.isLoadingPrevious)
-      ) {
-        if (contextMessageId !== null) {
-          messagesFeed.resetWithData(activeState.data!)
-          setContextMessageId(null)
-        } else {
-          prependAnchorRef.current = {
-            scrollTop: currentScrollTop,
-            totalSize: rowVirtualizer.getTotalSize(),
-          }
-          void messagesFeed.loadPrevious()
-        }
-
-        return
-      }
-
-      if (
-        distanceFromBottom <= edgeThreshold &&
-        activeState.data?.nextCursor &&
-        (contextMessageId !== null || autoLoadNextCursorRef.current !== activeState.data.nextCursor) &&
-        !activeState.isLoading &&
-        (contextMessageId !== null || !messagesFeed.isLoadingNext)
-      ) {
-        if (contextMessageId !== null) {
-          messagesFeed.resetWithData(activeState.data!)
-          setContextMessageId(null)
-        } else {
-          autoLoadNextCursorRef.current = activeState.data.nextCursor
-          void messagesFeed.loadNext().then((loaded) => {
-            if (!loaded) {
-              autoLoadNextCursorRef.current = null
-            }
-          })
-        }
-      }
-    }
-
-    scrollTopRef.current = scroller.scrollTop
-    scroller.addEventListener('scroll', handleScroll, { passive: true })
-
-    return () => {
-      scroller.removeEventListener('scroll', handleScroll)
-    }
-  }, [
-    activeState,
-    contextMessageId,
-    isSearchMode,
-    messagesFeed,
+  const {
+    scrollRef,
     rowVirtualizer,
-  ])
-
-  useEffect(() => {
-    autoLoadNextCursorRef.current = null
-  }, [activeState.data?.nextCursor])
-
-  useEffect(() => {
-    if (isSearchMode) {
-      return
-    }
-
-    const element = scrollRef.current
-    if (!element) {
-      return
-    }
-
-    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight
-    if (distanceFromBottom > AUTO_LOAD_EDGE_THRESHOLD) {
-      return
-    }
-
-    const nextCursor = activeState.data?.nextCursor
-    if (!nextCursor || activeState.isLoading) {
-      return
-    }
-
-    if (contextMessageId !== null) {
-      messagesFeed.resetWithData(activeState.data!)
-      setContextMessageId(null)
-      return
-    }
-
-    if (messagesFeed.isLoadingNext || autoLoadNextCursorRef.current === nextCursor) {
-      return
-    }
-
-    autoLoadNextCursorRef.current = nextCursor
-    void messagesFeed.loadNext().then((loaded) => {
-      if (!loaded) {
-        autoLoadNextCursorRef.current = null
-      }
-    })
-  }, [
-    activeItems.length,
-    activeState.data,
-    activeState.isLoading,
-    contextMessageId,
+    openMessageContext,
+    openPreviousMessages,
+    openNextMessages,
+    resetTimeline,
+  } = useTimelineController({
     isSearchMode,
+    activeState,
+    activeItems,
+    contextMessageId,
+    highlightedMessageId,
     messagesFeed,
-  ])
-
-  useEffect(() => {
-    if (!highlightedMessageId) {
-      lastScrolledFocusIdRef.current = null
-      return
-    }
-
-    if (lastScrolledFocusIdRef.current === highlightedMessageId || activeItems.length === 0) {
-      return
-    }
-
-    const highlightedIndex = activeItems.findIndex((message) => message.id === highlightedMessageId)
-    if (highlightedIndex >= 0) {
-      lastScrolledFocusIdRef.current = highlightedMessageId
-      rowVirtualizer.scrollToIndex(highlightedIndex, {
-        align: 'center',
-      })
-    }
-  }, [highlightedMessageId, activeItems, rowVirtualizer])
-
-  function openMessageContext(messageId: number) {
-    lastScrolledFocusIdRef.current = null
-    setContextMessageId(messageId)
-    setHighlightedMessageId(messageId)
-    setQuery('')
-    setAuthorFilter('')
-    setFromDate('')
-    setToDate('')
-    setSearchCursor('')
-  }
-
-  function openPreviousMessages() {
-    const prevCursor = activeState.data?.prevCursor
-    if (!prevCursor) {
-      return
-    }
-
-    if (!isSearchMode && contextMessageId === null) {
-      prependAnchorRef.current = {
-        scrollTop: scrollRef.current?.scrollTop ?? 0,
-        totalSize: rowVirtualizer.getTotalSize(),
-      }
-      void messagesFeed.loadPrevious()
-      return
-    }
-
-    setContextMessageId(null)
-    setHighlightedMessageId(null)
-    setFeedCursor(prevCursor)
-    setFeedDir('prev')
-  }
-
-  function openNextMessages() {
-    const nextCursor = activeState.data?.nextCursor
-    if (!nextCursor) {
-      return
-    }
-
-    if (isSearchMode) {
-      setSearchCursor(nextCursor)
-      return
-    }
-
-    if (contextMessageId === null) {
-      void messagesFeed.loadNext()
-      return
-    }
-
-    setContextMessageId(null)
-    setHighlightedMessageId(null)
-    setFeedCursor(nextCursor)
-    setFeedDir('next')
-  }
-
-  function resetTimeline() {
-    setContextMessageId(null)
-    setHighlightedMessageId(null)
-    setFeedCursor('')
-    setFeedDir('next')
-    messagesFeed.refetch()
-  }
+    setContextMessageId,
+    setHighlightedMessageId,
+    setFeedCursor,
+    setFeedDir,
+    setSearchCursor,
+    clearSearchFilters: () => {
+      setQuery('')
+      setAuthorFilter('')
+      setFromDate('')
+      setToDate('')
+    },
+  })
 
   return (
     <main className="discord-page">
