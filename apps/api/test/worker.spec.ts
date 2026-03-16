@@ -25,4 +25,12 @@ describe('worker health', () => {
     expect(response.status).toBe(400)
     expect(body.code).toBe('validation_error')
   })
+
+  it('returns validation error for message context without id', async () => {
+    const response = await app.request('http://localhost/api/messages/context')
+    const body = (await response.json()) as { code: string }
+
+    expect(response.status).toBe(400)
+    expect(body.code).toBe('validation_error')
+  })
 })

@@ -97,6 +97,22 @@ export async function listMessages(input: ListMessagesInput = {}) {
   return requestJson(url, MessagesPageSchema)
 }
 
+export type MessageContextInput = {
+  id: number
+  before?: number
+  after?: number
+}
+
+export async function getMessageContext(input: MessageContextInput) {
+  const url = buildUrl('/api/messages/context', {
+    id: input.id,
+    before: input.before ?? 10,
+    after: input.after ?? 10,
+  })
+
+  return requestJson(url, MessagesPageSchema)
+}
+
 export type SearchMessagesInput = {
   q?: string
   cursor?: string

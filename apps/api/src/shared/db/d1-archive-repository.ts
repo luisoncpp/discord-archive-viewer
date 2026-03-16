@@ -4,6 +4,10 @@ import type {
   ListAuthorsRepository,
 } from '../../modules/authors/list-authors.use-case'
 import type {
+  GetMessageContextParams,
+  MessageContextRepository,
+} from '../../modules/messages/get-message-context.use-case'
+import type {
   ListMessagesParams,
   ListMessagesRepository,
 } from '../../modules/messages/list-messages.use-case'
@@ -50,7 +54,13 @@ function toMessageDto(row: MessageRow): MessageDto {
   }
 }
 
-function buildCursorPage(items: MessageDto[], hasMore: boolean): CursorPage<MessageDto> {
+function buildCursorPage(
+  items: MessageDto[],
+  options: {
+    hasPrevious: boolean
+    hasNext: boolean
+  },
+): CursorPage<MessageDto> {
   if (items.length === 0) {
     return {
       items: [],
@@ -71,13 +81,13 @@ function buildCursorPage(items: MessageDto[], hasMore: boolean): CursorPage<Mess
 
   return {
     items,
-    nextCursor: hasMore ? String(lastItem.id) : null,
-    prevCursor: String(firstItem.id),
+    nextCursor: options.hasNext ? String(lastItem.id) : null,
+    prevCursor: options.hasPrevious ? String(firstItem.id) : null,
   }
 }
 
 export class D1ArchiveRepository
-  implements ListMessagesRepository, SearchMessagesRepository, ListAuthorsRepository
+  implements ListMessagesRepository, MessageContextRepository, SearchMessagesRepository, ListAuthorsRepository
 {
   private readonly db: D1Database
 
@@ -110,9 +120,12 @@ export class D1ArchiveRepository
         : await statement.bind(fetchLimit).all<MessageRow>()
 
       const rows = result.results ?? []
-      const hasMore = rows.length > params.limit
+      const hasPrevious = rows.length > params.limit
       const slicedRows = rows.slice(0, params.limit).reverse()
-      return buildCursorPage(slicedRows.map(toMessageDto), hasMore)
+      return buildCursorPage(slicedRows.map(toMessageDto), {
+        hasPrevious,
+        hasNext: Boolean(params.cursor),
+      })
     }
 
     const query = params.cursor
@@ -136,9 +149,54 @@ export class D1ArchiveRepository
       : await statement.bind(fetchLimit).all<MessageRow>()
 
     const rows = result.results ?? []
-    const hasMore = rows.length > params.limit
+    const hasNext = rows.length > params.limit
     const slicedRows = rows.slice(0, params.limit)
-    return buildCursorPage(slicedRows.map(toMessageDto), hasMore)
+    return buildCursorPage(slicedRows.map(toMessageDto), {
+      hasPrevious: Boolean(params.cursor),
+      hasNext,
+    })
+  }
+
+  async getMessageContext(params: GetMessageContextParams): Promise<CursorPage<MessageDto>> {
+    const previousResult = await this.db
+      .prepare(
+        `
+          SELECT id, source_row_id, message_timestamp, author_id, author_name, content, attachments_raw, reactions_raw
+          FROM messages
+          WHERE id < ?
+          ORDER BY id DESC
+          LIMIT ?
+        `,
+      )
+      .bind(params.messageId, params.before + 1)
+      .all<MessageRow>()
+
+    const currentAndNextResult = await this.db
+      .prepare(
+        `
+          SELECT id, source_row_id, message_timestamp, author_id, author_name, content, attachments_raw, reactions_raw
+          FROM messages
+          WHERE id >= ?
+          ORDER BY id ASC
+          LIMIT ?
+        `,
+      )
+      .bind(params.messageId, params.after + 2)
+      .all<MessageRow>()
+
+    const previousRows = previousResult.results ?? []
+    const currentAndNextRows = currentAndNextResult.results ?? []
+
+    const hasPrevious = previousRows.length > params.before
+    const hasNext = currentAndNextRows.length > params.after + 1
+    const previousSlice = previousRows.slice(0, params.before).reverse()
+    const currentAndNextSlice = currentAndNextRows.slice(0, params.after + 1)
+    const items = [...previousSlice, ...currentAndNextSlice].map(toMessageDto)
+
+    return buildCursorPage(items, {
+      hasPrevious,
+      hasNext,
+    })
   }
 
   async searchMessages(params: SearchMessagesParams): Promise<CursorPage<MessageDto>> {
@@ -191,9 +249,13 @@ export class D1ArchiveRepository
     const result = await statement.bind(...bindings, fetchLimit).all<MessageRow>()
 
     const rows = result.results ?? []
-    const hasMore = rows.length > params.limit
+    const hasNext = rows.length > params.limit
     const slicedRows = rows.slice(0, params.limit)
-    return buildCursorPage(slicedRows.map(toMessageDto), hasMore)
+    const hasPrevious = Boolean(params.cursor)
+    return buildCursorPage(slicedRows.map(toMessageDto), {
+      hasPrevious,
+      hasNext,
+    })
   }
 
   async listAuthors(params: ListAuthorsParams): Promise<AuthorDto[]> {
