@@ -247,8 +247,8 @@ Elevar robustez, mantenibilidad y diagnóstico antes de despliegue.
 - Aplicar rate limiting a búsqueda.
 - Mejorar logs y trazabilidad.
 - Afinar errores tipados.
-- Medir tiempos de respuesta del API.
-- Medir costo de render del timeline.
+- Calcular complejidad de tiempos de respuesta del API.
+- Calcular complejidad de costo de render del timeline.
 - Revisar estrategia de caché local.
 
 ### Pruebas unitarias adicionales
