@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { MessageDto, MessagesPageDto } from '../types/api'
 
@@ -33,6 +33,17 @@ type UseTimelineControllerInput = {
   clearSearchFilters: () => void
 }
 
+/**
+ * Mapa rápido del controlador de timeline:
+ * 1) Expone refs/acciones para UI (scrollRef + acciones públicas).
+ * 2) Escucha scroll y decide auto-load en borde superior/inferior.
+ * 3) En modo contexto, hidrata feed antes de salir para evitar saltos.
+ * 4) Conserva viewport al prepend de mensajes anteriores.
+ * 5) Ejecuta auto-load inferior post-render cuando aplica.
+ * 6) Hace scroll al mensaje enfocado solo una vez por id.
+ * 7) Mantiene deduplicación por nextCursor para no disparar cargas repetidas.
+ */
+
 export function useTimelineController({
   isSearchMode,
   activeState,
@@ -61,7 +72,272 @@ export function useTimelineController({
     getItemKey: (index) => activeItems[index]?.id ?? index,
   })
 
-  useEffect(() => {
+  const capturePrependAnchor = useCallback(
+    (scrollTop: number) => {
+      prependAnchorRef.current = {
+        scrollTop,
+        totalSize: rowVirtualizer.getTotalSize(),
+      }
+    },
+    [rowVirtualizer],
+  )
+
+  const resetAutoLoadNextCursorOnFailure = useCallback((loaded: boolean) => {
+    if (!loaded) {
+      autoLoadNextCursorRef.current = null
+    }
+  }, [])
+
+  const hydrateFeedAndExitContext = useCallback(
+    (data: MessagesPageDto) => {
+      messagesFeed.resetWithData(data)
+      setContextMessageId(null)
+    },
+    [messagesFeed, setContextMessageId],
+  )
+
+  const tryHandleTopEdgeScroll = useCallback(
+    (input: {
+      scrollDirection: number
+      currentScrollTop: number
+      data: MessagesPageDto
+      isLoading: boolean
+    }) => {
+      const { scrollDirection, currentScrollTop, data, isLoading } = input
+
+      if (
+        !(
+          scrollDirection < 0 &&
+          currentScrollTop <= AUTO_LOAD_EDGE_THRESHOLD &&
+          data.prevCursor &&
+          !isLoading &&
+          (contextMessageId !== null || !messagesFeed.isLoadingPrevious)
+        )
+      ) {
+        return false
+      }
+
+      if (contextMessageId !== null) {
+        hydrateFeedAndExitContext(data)
+      } else {
+        capturePrependAnchor(currentScrollTop)
+        void messagesFeed.loadPrevious()
+      }
+
+      return true
+    },
+    [capturePrependAnchor, contextMessageId, hydrateFeedAndExitContext, messagesFeed],
+  )
+
+  const tryHandleBottomEdgeScroll = useCallback(
+    (input: {
+      distanceFromBottom: number
+      data: MessagesPageDto
+      isLoading: boolean
+    }) => {
+      const { distanceFromBottom, data, isLoading } = input
+
+      if (
+        !(
+          distanceFromBottom <= AUTO_LOAD_EDGE_THRESHOLD &&
+          data.nextCursor &&
+          (contextMessageId !== null || autoLoadNextCursorRef.current !== data.nextCursor) &&
+          !isLoading &&
+          (contextMessageId !== null || !messagesFeed.isLoadingNext)
+        )
+      ) {
+        return false
+      }
+
+      if (contextMessageId !== null) {
+        hydrateFeedAndExitContext(data)
+      } else {
+        autoLoadNextCursorRef.current = data.nextCursor
+        void messagesFeed.loadNext().then(resetAutoLoadNextCursorOnFailure)
+      }
+
+      return true
+    },
+    [contextMessageId, hydrateFeedAndExitContext, messagesFeed, resetAutoLoadNextCursorOnFailure],
+  )
+
+  const onTimelineScroll = useCallback(() => {
+    const element = scrollRef.current
+    if (!element) {
+      return
+    }
+
+    const data = activeState.data
+    if (!data) {
+      return
+    }
+
+    const currentScrollTop = element.scrollTop
+    const scrollDirection = currentScrollTop - scrollTopRef.current
+    scrollTopRef.current = currentScrollTop
+    const distanceFromBottom = element.scrollHeight - currentScrollTop - element.clientHeight
+
+    const didHandleTopEdge = tryHandleTopEdgeScroll({
+      scrollDirection,
+      currentScrollTop,
+      data,
+      isLoading: activeState.isLoading,
+    })
+
+    if (didHandleTopEdge) {
+      return
+    }
+
+    void tryHandleBottomEdgeScroll({
+      distanceFromBottom,
+      data,
+      isLoading: activeState.isLoading,
+    })
+  }, [activeState.data, activeState.isLoading, tryHandleBottomEdgeScroll, tryHandleTopEdgeScroll])
+
+  const runBottomPostRenderAutoLoad = useCallback(() => {
+    if (isSearchMode) {
+      return
+    }
+
+    const element = scrollRef.current
+    if (!element) {
+      return
+    }
+
+    const currentData = activeState.data
+    if (!currentData) {
+      return
+    }
+
+    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight
+    if (distanceFromBottom > AUTO_LOAD_EDGE_THRESHOLD) {
+      return
+    }
+
+    const nextCursor = currentData.nextCursor
+    if (!nextCursor || activeState.isLoading) {
+      return
+    }
+
+    if (contextMessageId !== null) {
+      hydrateFeedAndExitContext(currentData)
+      return
+    }
+
+    if (messagesFeed.isLoadingNext || autoLoadNextCursorRef.current === nextCursor) {
+      return
+    }
+
+    autoLoadNextCursorRef.current = nextCursor
+    void messagesFeed.loadNext().then(resetAutoLoadNextCursorOnFailure)
+  }, [
+    activeState.data,
+    activeState.isLoading,
+    contextMessageId,
+    hydrateFeedAndExitContext,
+    isSearchMode,
+    messagesFeed,
+    resetAutoLoadNextCursorOnFailure,
+  ])
+
+  const scrollToHighlightedMessageOnce = useCallback(() => {
+    if (!highlightedMessageId) {
+      lastScrolledFocusIdRef.current = null
+      return
+    }
+
+    if (lastScrolledFocusIdRef.current === highlightedMessageId || activeItems.length === 0) {
+      return
+    }
+
+    const highlightedIndex = activeItems.findIndex((message) => message.id === highlightedMessageId)
+    if (highlightedIndex >= 0) {
+      lastScrolledFocusIdRef.current = highlightedMessageId
+      rowVirtualizer.scrollToIndex(highlightedIndex, { align: 'center' })
+    }
+  }, [activeItems, highlightedMessageId, rowVirtualizer])
+
+  const openMessageContext = useCallback(
+    (messageId: number) => {
+      lastScrolledFocusIdRef.current = null
+      setContextMessageId(messageId)
+      setHighlightedMessageId(messageId)
+      clearSearchFilters()
+      setSearchCursor('')
+    },
+    [clearSearchFilters, setContextMessageId, setHighlightedMessageId, setSearchCursor],
+  )
+
+  const openPreviousMessages = useCallback(() => {
+    const prevCursor = activeState.data?.prevCursor
+    if (!prevCursor) {
+      return
+    }
+
+    if (!isSearchMode && contextMessageId === null) {
+      capturePrependAnchor(scrollRef.current?.scrollTop ?? 0)
+      void messagesFeed.loadPrevious()
+      return
+    }
+
+    setContextMessageId(null)
+    setHighlightedMessageId(null)
+    setFeedCursor(prevCursor)
+    setFeedDir('prev')
+  }, [
+    activeState.data?.prevCursor,
+    capturePrependAnchor,
+    contextMessageId,
+    isSearchMode,
+    messagesFeed,
+    setContextMessageId,
+    setFeedCursor,
+    setFeedDir,
+    setHighlightedMessageId,
+  ])
+
+  const openNextMessages = useCallback(() => {
+    const nextCursor = activeState.data?.nextCursor
+    if (!nextCursor) {
+      return
+    }
+
+    if (isSearchMode) {
+      setSearchCursor(nextCursor)
+      return
+    }
+
+    if (contextMessageId === null) {
+      void messagesFeed.loadNext()
+      return
+    }
+
+    setContextMessageId(null)
+    setHighlightedMessageId(null)
+    setFeedCursor(nextCursor)
+    setFeedDir('next')
+  }, [
+    activeState.data?.nextCursor,
+    contextMessageId,
+    isSearchMode,
+    messagesFeed,
+    setContextMessageId,
+    setFeedCursor,
+    setFeedDir,
+    setHighlightedMessageId,
+    setSearchCursor,
+  ])
+
+  const resetTimeline = useCallback(() => {
+    setContextMessageId(null)
+    setHighlightedMessageId(null)
+    setFeedCursor('')
+    setFeedDir('next')
+    messagesFeed.refetch()
+  }, [messagesFeed, setContextMessageId, setFeedCursor, setFeedDir, setHighlightedMessageId])
+
+  useEffect(function compensatePrependAnchorAfterPreviousLoad() {
     const anchor = prependAnchorRef.current
     if (!anchor || messagesFeed.isLoadingPrevious) {
       return
@@ -82,221 +358,38 @@ export function useTimelineController({
     return () => window.cancelAnimationFrame(frameId)
   }, [activeItems.length, messagesFeed.isLoadingPrevious, rowVirtualizer])
 
-  useEffect(() => {
+  useEffect(function bindTimelineScrollListener() {
     const scroller = scrollRef.current
     if (!scroller || isSearchMode) {
       return
     }
 
-    function handleScroll() {
-      const element = scrollRef.current
-      if (!element) {
-        return
-      }
-
-      const currentScrollTop = element.scrollTop
-      const scrollDirection = currentScrollTop - scrollTopRef.current
-      scrollTopRef.current = currentScrollTop
-
-      const edgeThreshold = AUTO_LOAD_EDGE_THRESHOLD
-      const distanceFromBottom = element.scrollHeight - currentScrollTop - element.clientHeight
-
-      if (
-        scrollDirection < 0 &&
-        currentScrollTop <= edgeThreshold &&
-        activeState.data?.prevCursor &&
-        !activeState.isLoading &&
-        (contextMessageId !== null || !messagesFeed.isLoadingPrevious)
-      ) {
-        if (contextMessageId !== null) {
-          messagesFeed.resetWithData(activeState.data)
-          setContextMessageId(null)
-        } else {
-          prependAnchorRef.current = {
-            scrollTop: currentScrollTop,
-            totalSize: rowVirtualizer.getTotalSize(),
-          }
-          void messagesFeed.loadPrevious()
-        }
-
-        return
-      }
-
-      if (
-        distanceFromBottom <= edgeThreshold &&
-        activeState.data?.nextCursor &&
-        (contextMessageId !== null || autoLoadNextCursorRef.current !== activeState.data.nextCursor) &&
-        !activeState.isLoading &&
-        (contextMessageId !== null || !messagesFeed.isLoadingNext)
-      ) {
-        if (contextMessageId !== null) {
-          messagesFeed.resetWithData(activeState.data)
-          setContextMessageId(null)
-        } else {
-          autoLoadNextCursorRef.current = activeState.data.nextCursor
-          void messagesFeed.loadNext().then((loaded) => {
-            if (!loaded) {
-              autoLoadNextCursorRef.current = null
-            }
-          })
-        }
-      }
-    }
-
     scrollTopRef.current = scroller.scrollTop
-    scroller.addEventListener('scroll', handleScroll, { passive: true })
+    scroller.addEventListener('scroll', onTimelineScroll, { passive: true })
 
     return () => {
-      scroller.removeEventListener('scroll', handleScroll)
+      scroller.removeEventListener('scroll', onTimelineScroll)
     }
-  }, [activeState, contextMessageId, isSearchMode, messagesFeed, rowVirtualizer, setContextMessageId])
+  }, [isSearchMode, onTimelineScroll])
 
-  useEffect(() => {
+  useEffect(function resetBottomAutoLoadCursorOnCursorChange() {
     autoLoadNextCursorRef.current = null
   }, [activeState.data?.nextCursor])
 
-  useEffect(() => {
-    if (isSearchMode) {
-      return
-    }
+  useEffect(function triggerBottomAutoLoadAfterRender() {
+    runBottomPostRenderAutoLoad()
+  }, [activeItems.length, runBottomPostRenderAutoLoad])
 
-    const element = scrollRef.current
-    if (!element) {
-      return
-    }
-
-    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight
-    if (distanceFromBottom > AUTO_LOAD_EDGE_THRESHOLD) {
-      return
-    }
-
-    const currentData = activeState.data
-    const nextCursor = currentData?.nextCursor
-    if (!nextCursor || activeState.isLoading) {
-      return
-    }
-
-    if (contextMessageId !== null) {
-      messagesFeed.resetWithData(currentData)
-      setContextMessageId(null)
-      return
-    }
-
-    if (messagesFeed.isLoadingNext || autoLoadNextCursorRef.current === nextCursor) {
-      return
-    }
-
-    autoLoadNextCursorRef.current = nextCursor
-    void messagesFeed.loadNext().then((loaded) => {
-      if (!loaded) {
-        autoLoadNextCursorRef.current = null
-      }
-    })
-  }, [
-    activeItems.length,
-    activeState.data,
-    activeState.isLoading,
-    contextMessageId,
-    isSearchMode,
-    messagesFeed,
-    setContextMessageId,
-  ])
-
-  useEffect(() => {
-    if (!highlightedMessageId) {
-      lastScrolledFocusIdRef.current = null
-      return
-    }
-
-    if (lastScrolledFocusIdRef.current === highlightedMessageId || activeItems.length === 0) {
-      return
-    }
-
-    const highlightedIndex = activeItems.findIndex((message) => message.id === highlightedMessageId)
-    if (highlightedIndex >= 0) {
-      lastScrolledFocusIdRef.current = highlightedMessageId
-      rowVirtualizer.scrollToIndex(highlightedIndex, {
-        align: 'center',
-      })
-    }
-  }, [highlightedMessageId, activeItems, rowVirtualizer])
-
-  const actions = useMemo(
-    () => ({
-      openMessageContext(messageId: number) {
-        lastScrolledFocusIdRef.current = null
-        setContextMessageId(messageId)
-        setHighlightedMessageId(messageId)
-        clearSearchFilters()
-        setSearchCursor('')
-      },
-      openPreviousMessages() {
-        const prevCursor = activeState.data?.prevCursor
-        if (!prevCursor) {
-          return
-        }
-
-        if (!isSearchMode && contextMessageId === null) {
-          prependAnchorRef.current = {
-            scrollTop: scrollRef.current?.scrollTop ?? 0,
-            totalSize: rowVirtualizer.getTotalSize(),
-          }
-          void messagesFeed.loadPrevious()
-          return
-        }
-
-        setContextMessageId(null)
-        setHighlightedMessageId(null)
-        setFeedCursor(prevCursor)
-        setFeedDir('prev')
-      },
-      openNextMessages() {
-        const nextCursor = activeState.data?.nextCursor
-        if (!nextCursor) {
-          return
-        }
-
-        if (isSearchMode) {
-          setSearchCursor(nextCursor)
-          return
-        }
-
-        if (contextMessageId === null) {
-          void messagesFeed.loadNext()
-          return
-        }
-
-        setContextMessageId(null)
-        setHighlightedMessageId(null)
-        setFeedCursor(nextCursor)
-        setFeedDir('next')
-      },
-      resetTimeline() {
-        setContextMessageId(null)
-        setHighlightedMessageId(null)
-        setFeedCursor('')
-        setFeedDir('next')
-        messagesFeed.refetch()
-      },
-    }),
-    [
-      activeState.data,
-      clearSearchFilters,
-      contextMessageId,
-      isSearchMode,
-      messagesFeed,
-      rowVirtualizer,
-      setContextMessageId,
-      setFeedCursor,
-      setFeedDir,
-      setHighlightedMessageId,
-      setSearchCursor,
-    ],
-  )
+  useEffect(function scrollToHighlightedMessageOnFirstAppearance() {
+    scrollToHighlightedMessageOnce()
+  }, [scrollToHighlightedMessageOnce])
 
   return {
     scrollRef,
     rowVirtualizer,
-    ...actions,
+    openMessageContext,
+    openPreviousMessages,
+    openNextMessages,
+    resetTimeline,
   }
 }
