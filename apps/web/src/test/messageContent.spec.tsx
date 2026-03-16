@@ -87,6 +87,20 @@ describe('MessageContent', () => {
     expect(screen.getByRole('link', { name: /Abrir video original/i })).toBeInTheDocument()
   })
 
+  it('renders tenor embed with fallback link', () => {
+    render(
+      <MessageContent
+        content={'https://tenor.com/view/coincidence-i-think-not-coincidence-i-think-not-the-incredibles-gif-5096707'}
+        attachmentsRaw={null}
+        reactionsRaw={null}
+      />,
+    )
+
+    const iframe = screen.getByTitle('Tenor GIF 5096707')
+    expect(iframe).toHaveAttribute('src', 'https://tenor.com/embed/5096707')
+    expect(screen.getByRole('link', { name: /Abrir GIF original/i })).toBeInTheDocument()
+  })
+
   it('does not render embed when no eligible url exists', () => {
     render(<MessageContent content={'solo texto'} attachmentsRaw={null} reactionsRaw={null} />)
     expect(screen.queryByTestId('message-embed')).not.toBeInTheDocument()

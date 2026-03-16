@@ -13,6 +13,12 @@ export type MessageEmbed =
       embedUrl: string
       videoId: string
     }
+  | {
+      type: 'tenor'
+      url: string
+      embedUrl: string
+      gifId: string
+    }
 
 type AttachmentLike =
   | string
@@ -54,6 +60,21 @@ function extractYouTubeVideoId(url: string): string | null {
     }
 
     return null
+  } catch {
+    return null
+  }
+}
+
+function extractTenorGifId(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.replace(/^www\./i, '').toLowerCase()
+    if (host !== 'tenor.com' && host !== 'tenor.co') {
+      return null
+    }
+
+    const match = parsed.pathname.match(/-gif-(\d+)(?:$|\/)/)
+    return match?.[1] ?? null
   } catch {
     return null
   }
@@ -118,6 +139,16 @@ export function findFirstEligibleEmbed(input: EmbedInput): MessageEmbed | null {
         url,
         videoId,
         embedUrl: `https://www.youtube.com/embed/${videoId}`,
+      }
+    }
+
+    const gifId = extractTenorGifId(url)
+    if (gifId) {
+      return {
+        type: 'tenor',
+        url,
+        gifId,
+        embedUrl: `https://tenor.com/embed/${gifId}`,
       }
     }
   }

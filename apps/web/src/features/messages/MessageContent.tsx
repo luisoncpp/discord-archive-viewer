@@ -37,7 +37,7 @@ export function MessageContent({ content, attachmentsRaw, reactionsRaw }: Messag
               loading="lazy"
               className="message-embed-image"
             />
-          ) : (
+          ) : embed.type === 'youtube' ? (
             <div className="message-embed-youtube">
               <iframe
                 title={`YouTube video ${embed.videoId}`}
@@ -50,6 +50,21 @@ export function MessageContent({ content, attachmentsRaw, reactionsRaw }: Messag
               <p className="message-embed-link">
                 <a href={embed.url} target="_blank" rel="noreferrer noopener">
                   Abrir video original
+                </a>
+              </p>
+            </div>
+          ) : (
+            <div className="message-embed-tenor">
+              <iframe
+                title={`Tenor GIF ${embed.gifId}`}
+                src={embed.embedUrl}
+                loading="lazy"
+                allowFullScreen
+                className="message-embed-iframe"
+              />
+              <p className="message-embed-link">
+                <a href={embed.url} target="_blank" rel="noreferrer noopener">
+                  Abrir GIF original
                 </a>
               </p>
             </div>
