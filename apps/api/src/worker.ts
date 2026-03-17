@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 import { listAuthorsController } from './modules/authors/authors.controller'
 import { getMessageContextController, listMessagesController } from './modules/messages/messages.controller'
 import { searchMessagesController } from './modules/search/search.controller'
@@ -16,6 +17,13 @@ function createRequestId(): string {
 }
 
 const app = new Hono<{ Bindings: EnvBindings; Variables: AppVariables }>()
+
+app.use('/api/*', cors({
+  origin: '*',
+  allowMethods: ['GET', 'OPTIONS'],
+  allowHeaders: ['Content-Type'],
+  maxAge: 86400,
+}))
 
 app.use('*', async (context, next) => {
   const requestId = createRequestId()
