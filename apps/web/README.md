@@ -26,6 +26,10 @@ npm run build -w apps/web
 - `SHARE_PROXY_BASE_URL` (opcional, Cloudflare Pages Functions): URL del Worker que genera OG dinámico para `?focus`.
 - Prioridad para links compartibles: `VITE_SHARE_URL` -> `VITE_API_URL` -> `window.location.origin`.
 
+Para Cloudflare Pages en monorepo:
+- Si el **root directory** del proyecto es `apps/web`, usa `apps/web/functions`.
+- Si el **root directory** es la raíz del repo, usa `functions` en la raíz.
+
 ## Documentación técnica
 
 La guía principal está en `WEB_DOCUMENTATION.md` e incluye:
