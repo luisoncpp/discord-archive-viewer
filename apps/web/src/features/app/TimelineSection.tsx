@@ -67,6 +67,19 @@ function formatTimestamp(value: string): string {
   })
 }
 
+function getShareBaseOrigin(): string {
+  const apiUrl = import.meta.env.VITE_API_URL
+  if (!apiUrl) {
+    return window.location.origin
+  }
+
+  try {
+    return new URL(apiUrl, window.location.origin).origin
+  } catch {
+    return window.location.origin
+  }
+}
+
 export function TimelineSection({
   data,
   items,
@@ -98,6 +111,7 @@ export function TimelineSection({
             }
 
             const isCompact = shouldCompactWithPrevious(items, virtualRow.index)
+            const shareHref = `${getShareBaseOrigin()}/share?focus=${message.id}`
 
             return (
               <article
@@ -135,7 +149,7 @@ export function TimelineSection({
                       <strong className="discord-author">{message.authorName}</strong>
                       <a
                         className="discord-timestamp discord-timestamp-link"
-                        href={`${window.location.pathname}?focus=${message.id}`}
+                        href={shareHref}
                         onClick={(event) => {
                           event.preventDefault()
                           event.stopPropagation()
