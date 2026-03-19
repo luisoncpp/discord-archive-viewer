@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { MessageContent } from '../features/messages/MessageContent'
 
@@ -142,5 +142,42 @@ describe('MessageContent', () => {
 
     expect(screen.getByText('<script>alert("xss")</script>')).toBeInTheDocument()
     expect(container.querySelector('script')).toBeNull()
+  })
+
+  it('renders spoiler bars and reveals content on click', () => {
+    render(
+      <MessageContent
+        content={'Visible ||contenido secreto|| final'}
+        attachmentsRaw={null}
+        reactionsRaw={null}
+      />,
+    )
+
+    const spoiler = screen.getByRole('button', { name: /mostrar spoiler/i })
+    expect(spoiler).toHaveClass('message-spoiler')
+    expect(spoiler).not.toHaveClass('is-revealed')
+
+    fireEvent.click(spoiler)
+
+    expect(spoiler).toHaveClass('is-revealed')
+    expect(spoiler).toHaveAccessibleName('Ocultar spoiler')
+    expect(screen.getByText('contenido secreto')).toBeInTheDocument()
+  })
+
+  it('supports spoilers that span multiple lines', () => {
+    render(
+      <MessageContent
+        content={'inicio ||linea secreta 1\nlinea secreta 2|| fin'}
+        attachmentsRaw={null}
+        reactionsRaw={null}
+      />,
+    )
+
+    const spoiler = screen.getByRole('button', { name: /mostrar spoiler/i })
+    fireEvent.click(spoiler)
+
+    expect(spoiler).toHaveClass('is-revealed')
+    expect(screen.getByText(/linea secreta 1/)).toBeInTheDocument()
+    expect(screen.getByText(/linea secreta 2/)).toBeInTheDocument()
   })
 })

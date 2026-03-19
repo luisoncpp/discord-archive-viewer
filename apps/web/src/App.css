@@ -348,6 +348,33 @@
   font-size: 85%;
 }
 
+.message-spoiler {
+  display: inline;
+  appearance: none;
+  border: 0;
+  border-radius: 3px;
+  padding: 0 4px;
+  margin: 0 1px;
+  background: #1e1f22;
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
+  white-space: inherit;
+  color: transparent;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+
+.message-spoiler.is-revealed {
+  color: inherit;
+  background: #2b2d31;
+}
+
+.message-spoiler:focus-visible {
+  outline: 2px solid #00a8fc;
+  outline-offset: 1px;
+}
+
 .message-embed {
   margin-top: 8px;
 }
