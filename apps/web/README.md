@@ -21,8 +21,9 @@ npm run build -w apps/web
 
 ## Variables de entorno
 
+- `VITE_SHARE_URL` (opcional): URL base para links compartibles (`/share?focus=...`).
 - `VITE_API_URL` (opcional): URL base de API.
-- Si no existe, el cliente usa `window.location.origin`.
+- Prioridad para links compartibles: `VITE_SHARE_URL` -> `VITE_API_URL` -> `window.location.origin`.
 
 ## Documentación técnica
 

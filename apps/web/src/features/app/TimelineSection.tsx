@@ -68,6 +68,15 @@ function formatTimestamp(value: string): string {
 }
 
 function getShareBaseOrigin(): string {
+  const shareUrl = import.meta.env.VITE_SHARE_URL
+  if (shareUrl) {
+    try {
+      return new URL(shareUrl, window.location.origin).origin
+    } catch {
+      return window.location.origin
+    }
+  }
+
   const apiUrl = import.meta.env.VITE_API_URL
   if (!apiUrl) {
     return window.location.origin
@@ -111,7 +120,7 @@ export function TimelineSection({
             }
 
             const isCompact = shouldCompactWithPrevious(items, virtualRow.index)
-            const shareHref = `${getShareBaseOrigin()}/?focus=${message.id}`
+            const shareHref = `${getShareBaseOrigin()}/share?focus=${message.id}`
 
             return (
               <article
