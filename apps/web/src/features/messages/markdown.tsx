@@ -1,8 +1,23 @@
-import { Fragment, type ReactNode } from 'react'
+import { Fragment, useState, type ReactNode } from 'react'
 
 const URL_PATTERN = /https?:\/\/[^\s<]+/g
 const MARKDOWN_LINK_PATTERN = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g
-const INLINE_TOKEN_PATTERN = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\[[^\]]+\]\(https?:\/\/[^\s)]+\))|(https?:\/\/[^\s<]+)/g
+const INLINE_TOKEN_PATTERN = /(\|\|[\s\S]+?\|\|)|(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\[[^\]]+\]\(https?:\/\/[^\s)]+\))|(https?:\/\/[^\s<]+)/g
+
+function SpoilerInline({ children }: { children: ReactNode }) {
+  const [isRevealed, setIsRevealed] = useState(false)
+
+  return (
+    <button
+      type="button"
+      className={`message-spoiler${isRevealed ? ' is-revealed' : ''}`}
+      onClick={() => setIsRevealed((current) => !current)}
+      aria-label={isRevealed ? 'Ocultar spoiler' : 'Mostrar spoiler'}
+    >
+      {children}
+    </button>
+  )
+}
 
 function trimTrailingPunctuation(url: string): string {
   return url.replace(/[.,!?;:]+$/g, '')
@@ -37,7 +52,13 @@ function renderInline(text: string): ReactNode[] {
       nodes.push(text.slice(cursor, start))
     }
 
-    if (raw.startsWith('`') && raw.endsWith('`')) {
+    if (raw.startsWith('||') && raw.endsWith('||')) {
+      nodes.push(
+        <SpoilerInline key={`spoiler-${tokenIndex}`}>
+          {renderInline(raw.slice(2, -2))}
+        </SpoilerInline>,
+      )
+    } else if (raw.startsWith('`') && raw.endsWith('`')) {
       nodes.push(<code key={`code-${tokenIndex}`}>{raw.slice(1, -1)}</code>)
     } else if (raw.startsWith('**') && raw.endsWith('**')) {
       nodes.push(<strong key={`strong-${tokenIndex}`}>{raw.slice(2, -2)}</strong>)
@@ -106,6 +127,7 @@ export function renderDiscordMarkdown(content: string): ReactNode[] {
   let codeFenceLang = ''
   let codeBuffer: string[] = []
   let quoteBuffer: string[] = []
+  let paragraphBuffer: string[] = []
   let keyCounter = 0
 
   const flushCodeBlock = () => {
@@ -136,12 +158,24 @@ export function renderDiscordMarkdown(content: string): ReactNode[] {
     quoteBuffer = []
   }
 
+  const flushParagraph = () => {
+    if (paragraphBuffer.length === 0) {
+      return
+    }
+
+    nodes.push(
+      <p key={`p-${keyCounter++}`}>{renderInlineLine(paragraphBuffer.join('\n'))}</p>,
+    )
+    paragraphBuffer = []
+  }
+
   for (const line of lines) {
     const fence = line.match(/^```(\w+)?\s*$/)
     if (fence) {
       if (quoteBuffer.length > 0) {
         flushQuoteBlock()
       }
+      flushParagraph()
 
       if (inCodeBlock) {
         flushCodeBlock()
@@ -159,6 +193,7 @@ export function renderDiscordMarkdown(content: string): ReactNode[] {
 
     const quoteMatch = line.match(/^>\s?(.*)$/)
     if (quoteMatch) {
+      flushParagraph()
       quoteBuffer.push(quoteMatch[1] ?? '')
       continue
     }
@@ -168,18 +203,19 @@ export function renderDiscordMarkdown(content: string): ReactNode[] {
     }
 
     if (!line.trim()) {
+      flushParagraph()
       nodes.push(<br key={`br-${keyCounter++}`} />)
       continue
     }
 
-    nodes.push(
-      <p key={`p-${keyCounter++}`}>{renderInlineLine(line)}</p>,
-    )
+    paragraphBuffer.push(line)
   }
 
   if (quoteBuffer.length > 0) {
     flushQuoteBlock()
   }
+
+  flushParagraph()
 
   if (inCodeBlock && codeBuffer.length > 0) {
     flushCodeBlock()
