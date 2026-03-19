@@ -23,6 +23,7 @@ npm run build -w apps/web
 
 - `VITE_SHARE_URL` (opcional): URL base para links compartibles (`/share?focus=...`).
 - `VITE_API_URL` (opcional): URL base de API.
+- `SHARE_PROXY_BASE_URL` (opcional, Cloudflare Pages Functions): URL del Worker que genera OG dinámico para `?focus`.
 - Prioridad para links compartibles: `VITE_SHARE_URL` -> `VITE_API_URL` -> `window.location.origin`.
 
 ## Documentación técnica
