@@ -84,4 +84,30 @@ describe('worker health', () => {
     expect(body).toContain('property="og:title"')
     expect(body).toContain('name="twitter:title"')
   })
+
+  it('returns dynamic social preview for focused message on /?focus', async () => {
+    const env = {
+      DB: {
+        prepare: () => ({
+          bind: () => ({
+            first: async () => ({
+              id: 43,
+              author_name: 'TacoBailador',
+              content: 'por ahora',
+              message_timestamp: '2017-10-23T10:00:00.000Z',
+            }),
+          }),
+        }),
+      },
+      APP_NAME: 'discord-archive-api',
+    } as unknown as { DB: D1Database; APP_NAME: string }
+
+    const response = await app.request('http://localhost/?focus=43', undefined, env)
+    const body = await response.text()
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('text/html')
+    expect(body).toContain('TacoBailador: por ahora. 23/10/2017')
+    expect(body).toContain('<h1>TacoBailador: por ahora. 23/10/2017</h1>')
+  })
 })

@@ -111,7 +111,7 @@ export function TimelineSection({
             }
 
             const isCompact = shouldCompactWithPrevious(items, virtualRow.index)
-            const shareHref = `${getShareBaseOrigin()}/share?focus=${message.id}`
+            const shareHref = `${getShareBaseOrigin()}/?focus=${message.id}`
 
             return (
               <article
